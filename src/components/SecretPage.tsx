@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User } from 'lucide-react';
-import { getAuth, GoogleAuthProvider, signInWithPopup as authSignInWithPopup, deleteUser, getAdditionalUserInfo } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { getAuth, GoogleAuthProvider, signInWithPopup as authSignInWithPopup, getAdditionalUserInfo } from 'firebase/auth';
 
 type SecretNavigate = (section: 'home' | 'stack' | 'projects' | 'secret' | 'dashboard' | 'view_link') => void;
 
@@ -17,7 +15,7 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
     const [profile, setProfile] = useState<{ imageUrl?: string; name?: string; title?: string }>({
         imageUrl: '',
         name: 'Action Center',
-        title: 'Authorized Revil Only'
+        title: 'Authorized Amin Only'
     });
     const auth = getAuth();
     const provider = new GoogleAuthProvider();
@@ -32,17 +30,19 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
     }, []);
 
     useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'Settings', 'Account'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                setProfile({
-                    imageUrl: data.imageUrl || '',
-                    name: data.name || 'Action Center',
-                    title: data.title || 'Authorized Revil Only'
-                });
-            }
-        });
-        return () => unsub();
+        fetch('/api/settings/account')
+            .then(res => res.json())
+            .then(body => {
+                const data = body.data;
+                if (data) {
+                    setProfile({
+                        imageUrl: data.imageUrl || '',
+                        name: data.name || 'Action Center',
+                        title: data.title || 'Authorized Amin Only'
+                    });
+                }
+            })
+            .catch(err => console.warn('Failed to load account profile', err));
     }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -54,11 +54,13 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
             const result = await authSignInWithPopup(auth, provider);
             const details = getAdditionalUserInfo(result);
 
-            if (details?.isNewUser) {
-                await deleteUser(result.user);
-                setError('Wrong Shot.');
-                return;
-            }
+            void details;
+            // TEMP: new-user rejection disabled for initial account bootstrap — restore after first sign-in.
+            // if (details?.isNewUser) {
+            //     await deleteUser(result.user);
+            //     setError('Wrong Shot.');
+            //     return;
+            // }
 
             if (onNavigate) {
                 onNavigate('dashboard');

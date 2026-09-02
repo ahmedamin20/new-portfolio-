@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Paperclip, User, Phone, MessageSquare, Check, Mail, Calendar, Clock, ChevronLeft, ChevronRight, AlertCircle, Globe } from 'lucide-react';
 import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
-import { db, storage, functions } from '../lib/firebase';
+import { uploadToCloudinary } from '../lib/cloudinary';
+import { db, functions } from '../lib/firebase';
 import Alert from './Alert'; // Import Custom Alert
 import useSafeAlert from '../hooks/useSafeAlert';
 import useTheme from '../hooks/useTheme';
@@ -518,9 +518,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
         const uploadedFiles = [];
         if (formData.attachments.length > 0) {
           for (const file of formData.attachments) {
-            const fileRef = ref(storage, `emails/${nextId}/${file.name}`);
-            const snapshot = await uploadBytes(fileRef, file);
-            const downloadURL = await getDownloadURL(snapshot.ref);
+            const downloadURL = await uploadToCloudinary(file, `emails/${nextId}`);
             uploadedFiles.push({ name: file.name, url: downloadURL });
           }
         }

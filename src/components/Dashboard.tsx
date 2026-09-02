@@ -6,8 +6,6 @@ import DTags from './dashboard/D-Tags';
 import DLinks from './dashboard/D-Links';
 import DSettings from './dashboard/D-Settings';
 import DCanary from './dashboard/D-Canary';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 
 // The parameter name in the function type would trigger `no-unused-vars` in some
 // ESLint configurations, so we suppress that rule for the following type alias.
@@ -29,13 +27,12 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
     const isMobile = windowWidth < 768;       // 640px - 767px
 
     useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'Settings', 'Account'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                if (data.imageUrl) setProfileImage(data.imageUrl);
-            }
-        });
-        return () => unsub();
+        fetch('/api/settings/account')
+            .then(res => res.json())
+            .then(body => {
+                if (body.data?.imageUrl) setProfileImage(body.data.imageUrl);
+            })
+            .catch(err => console.warn('Failed to load account profile', err));
     }, []);
 
     useEffect(() => {
@@ -149,7 +146,7 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
                     </div>
                     {!isMobile && (
                         <span className="text-xl font-bold text-primary font-inter">
-                            Revil
+                            Hello Amin
                         </span>
                     )}
                 </div>

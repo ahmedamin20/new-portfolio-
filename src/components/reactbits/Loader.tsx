@@ -266,7 +266,7 @@ const Loader: React.FC<LoaderProps> = ({ isOpen = true, isFullScreen = false }) 
                                     transition={{ type: "spring", damping: 30, stiffness: 400 }}
                                     className="text-white text-4xl sm:text-5xl md:text-6xl font-black tracking-tight"
                                 >
-                                    Revil
+                                    Amin😘
                                 </motion.span>
                                 <RotatingText
                                     texts={['INIT', 'DATA', 'CORE', 'PROJECTS', 'STACK']}

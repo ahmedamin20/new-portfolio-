@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { sanitizeSvg } from '../../lib/sanitize';
 import { createPortal } from 'react-dom';
 import { X, Upload, Plus, Image as ImageIcon, Github, ExternalLink, Trash2, Eye, Edit } from 'lucide-react';
-import { doc, collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 import anime from 'animejs';
 
 import { ProjectData, TagData, ContributorData } from '../../types';
@@ -20,23 +18,23 @@ interface MProjectFormProps {
     initialData?: ProjectFormData | null;
 }
 
-interface RawFirestoreTag {
-    Name?: string;
-    Color?: string;
-    Icon?: string;
+interface ApiTag {
+    id: number;
+    name: string;
+    color: string;
+    iconUrl: string | null;
 }
 
-interface RawFirestoreContributor {
-    Name?: string;
-    Role?: string;
-    Image?: string;
-    'Social Accounts'?: {
-        Github?: string;
-        Linkedin?: string;
-        Facebook?: string;
-        Instagram?: string;
-        Portfolio?: string;
-    };
+interface ApiContributor {
+    id: number;
+    name: string;
+    role: string | null;
+    imageUrl: string | null;
+    github: string | null;
+    linkedin: string | null;
+    facebook: string | null;
+    instagram: string | null;
+    portfolio: string | null;
 }
 
 const MProjectForm = ({ isOpen, onClose, onSave, initialData }: Omit<MProjectFormProps, 'initialData'> & { initialData?: MProjectFormProps['initialData'] }) => {
@@ -73,77 +71,39 @@ const MProjectForm = ({ isOpen, onClose, onSave, initialData }: Omit<MProjectFor
         return () => observer.disconnect();
     }, []);
 
-    // Fetch Tags and Contributors from Firebase
+    // Fetch Tags and Contributors from the API
     useEffect(() => {
-        const unsubTags = onSnapshot(doc(db, 'Tags', 'Tags'), (snapshot) => {
-            if (snapshot.exists()) {
-                const data = snapshot.data();
-                const tagsData = Object.entries(data).map(([id, val]: [string, RawFirestoreTag]) => ({
-                    id,
-                    name: val.Name || 'Untitled',
-                    color: val.Color || '#3b82f6',
-                    iconSvg: val.Icon || ''
-                }));
-                tagsData.sort((a, b) => a.name.localeCompare(b.name));
+        fetch('/api/tags')
+            .then(res => res.json())
+            .then(body => {
+                const tagsData: TagData[] = (body.data as ApiTag[])
+                    .map(t => ({ id: t.id, name: t.name, color: t.color, iconSvg: t.iconUrl || '' }))
+                    .sort((a, b) => a.name.localeCompare(b.name));
                 setAvailableTags(tagsData);
-            }
-        });
+            })
+            .catch(err => console.warn('Failed to load tags', err));
 
-        const unsubContributorsDoc = onSnapshot(doc(db, 'Tags', 'Contributors'), (snapshot) => {
-            if (snapshot.exists()) {
-                const data = snapshot.data();
-                const contribData = Object.entries(data)
-                    .filter(([, val]) => val && typeof val === 'object' && (val as RawFirestoreContributor).Name)
-                    .map(([id, val]: [string, RawFirestoreContributor]) => ({
-                        id,
-                        name: val.Name || 'Anonymous',
-                        role: val.Role || '',
-                        image: val.Image || '',
+        fetch('/api/contributors')
+            .then(res => res.json())
+            .then(body => {
+                const contribData: ContributorData[] = (body.data as ApiContributor[])
+                    .map(c => ({
+                        id: c.id,
+                        name: c.name,
+                        role: c.role || '',
+                        image: c.imageUrl || '',
                         socials: {
-                            github: val['Social Accounts']?.Github || '',
-                            linkedin: val['Social Accounts']?.Linkedin || '',
-                            facebook: val['Social Accounts']?.Facebook || '',
-                            instagram: val['Social Accounts']?.Instagram || '',
-                            portfolio: val['Social Accounts']?.Portfolio || ''
+                            github: c.github || '',
+                            linkedin: c.linkedin || '',
+                            facebook: c.facebook || '',
+                            instagram: c.instagram || '',
+                            portfolio: c.portfolio || ''
                         }
-                    } as ContributorData));
-                setAvailableContributors(prev => {
-                    const filtered = prev.filter(c => !contribData.some(d => d.id === c.id));
-                    const combined = [...filtered, ...contribData];
-                    return combined.sort((a, b) => a.name.localeCompare(b.name));
-                });
-            }
-        });
-
-        const unsubContributorsCol = onSnapshot(collection(db, 'Tags', 'Contributors', 'Profiles'), (snapshot) => {
-            const contribData = snapshot.docs.map(doc => {
-                const val = doc.data();
-                return {
-                    id: doc.id,
-                    name: val.Name || val.name || 'Anonymous',
-                    role: val.Role || val.role || '',
-                    image: val.Image || val.image || '',
-                    socials: {
-                        github: (val['Social Accounts']?.Github || val.socials?.github || ''),
-                        linkedin: (val['Social Accounts']?.Linkedin || val.socials?.linkedin || ''),
-                        facebook: (val['Social Accounts']?.Facebook || val.socials?.facebook || ''),
-                        instagram: (val['Social Accounts']?.Instagram || val.socials?.instagram || ''),
-                        portfolio: (val['Social Accounts']?.Portfolio || val.socials?.portfolio || '')
-                    }
-                };
-            });
-            setAvailableContributors(prev => {
-                const filtered = prev.filter(c => !contribData.some(d => d.id === c.id));
-                const combined = [...filtered, ...contribData];
-                return combined.sort((a, b) => a.name.localeCompare(b.name));
-            });
-        });
-
-        return () => {
-            unsubTags();
-            unsubContributorsDoc();
-            unsubContributorsCol();
-        };
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                setAvailableContributors(contribData);
+            })
+            .catch(err => console.warn('Failed to load contributors', err));
     }, []);
 
 

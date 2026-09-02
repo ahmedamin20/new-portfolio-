@@ -2,52 +2,48 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import anime from 'animejs';
 import { X, Search } from 'lucide-react';
-import { db } from '../lib/firebase';
 import { sanitizeSvg } from '../lib/sanitize';
-import { collection, onSnapshot, doc } from 'firebase/firestore';
 
 import MProjectView from './M-ProjectView';
 import MContributorView, { Contributor } from './M-ContributorView';
 import { ProjectData as Project, TagData as Tag, ContributorData } from '../types';
-import { getStackIcon, getTechColor, isVideoFile } from '../utils/projectUtils';
+import { isVideoFile } from '../utils/projectUtils';
 
-interface RawContributorData {
-    Name?: string;
-    Role?: string;
-    Image?: string;
-    "Social Accounts"?: Record<string, string>;
+interface ApiTag {
+    id: number;
+    name: string;
+    color: string;
+    iconUrl: string | null;
 }
 
-interface RawTagData {
-    Name?: string;
-    Color?: string;
-    Icon?: string;
+interface ApiContributor {
+    id: number;
+    name: string;
+    role: string | null;
+    imageUrl: string | null;
+    github: string | null;
+    linkedin: string | null;
+    facebook: string | null;
+    instagram: string | null;
+    portfolio: string | null;
 }
 
-interface ProjectContributorData {
-    "Contributor Name"?: string;
-    "Role at Project"?: string;
-}
-
-interface FirestoreProject {
-    id: string;
-    Title?: string;
-    Description?: string;
-    "Project Images"?: string[];
-    Stack?: (string | RawTagData)[] | Record<string, string | RawTagData>;
-    Tags?: Record<string, string | RawTagData>;
-    Contributors?: Record<string, ProjectContributorData>;
-    "Repository Link"?: string;
-    "Live Link"?: string;
-    "Download Link"?: string;
-    Views?: {
-        Project?: number;
-        Github?: number;
-        Live?: number;
-        Download?: number;
-    };
-    Listing?: number | string;
-    listing?: number | string;
+interface ApiProject {
+    id: number;
+    name: string;
+    description: string | null;
+    liveLink: string | null;
+    repoLink: string | null;
+    downloadLink: string | null;
+    iconUrl: string | null;
+    viewsProject: number;
+    viewsGithub: number;
+    viewsLive: number;
+    viewsDownload: number;
+    listing: number;
+    tags: { tag: ApiTag }[];
+    contributors: { roleAtProject: string | null; contributor: ApiContributor }[];
+    images: { url: string }[];
 }
 
 const CardVideo = ({ src, isActive }: { src: string; isActive: boolean }) => {
@@ -308,7 +304,6 @@ const ProjectCard = ({ project, index, onClick }: { project: Project; index: num
 const Projects = () => {
     const titleRef = useRef<HTMLHeadingElement>(null);
     const handwritingRef = useRef<HTMLDivElement>(null);
-    const [availableContributors, setAvailableContributors] = useState<Contributor[]>([]);
     const [availableTags, setAvailableTags] = useState<Tag[]>([]);
     const [selectedContributor, setSelectedContributor] = useState<Contributor | null>(null);
     const [showContributorModal, setShowContributorModal] = useState(false);
@@ -324,142 +319,77 @@ const Projects = () => {
 
     // Fetch Data
     useEffect(() => {
-        // Contributors
-        const unsubDoc = onSnapshot(doc(db, 'Tags', 'Contributors'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                const loaded = Object.entries(data)
-                    .filter(([, val]) => val && typeof val === 'object' && (val as RawContributorData).Name)
-                    .map(([id, val]: [string, RawContributorData]): Contributor => ({
-                        id,
-                        name: val.Name || '',
-                        role: val.Role || '',
-                        jobTitle: val.Role || '',
-                        image: val.Image || '',
-                        links: val["Social Accounts"] || {}
-                    }));
-                setAvailableContributors(prev => {
-                    const filtered = prev.filter(p => !loaded.some(l => l.id === p.id));
-                    return [...filtered, ...loaded];
-                });
-            }
-        });
-
-        const unsubCol = onSnapshot(collection(db, 'Tags', 'Contributors', 'Profiles'), (snapshot) => {
-            const loaded = snapshot.docs.map(d => {
-                const val = d.data();
-                return {
-                    id: d.id,
-                    name: val.Name || val.name || '',
-                    role: val.Role || val.role || '',
-                    jobTitle: val.Role || val.role || '',
-                    image: val.Image || val.image || '',
-                    links: val["Social Accounts"] || val.links || val.socials || {}
-                } as Contributor;
-            });
-            setAvailableContributors(prev => {
-                const filtered = prev.filter(p => !loaded.some(l => l.id === p.id));
-                return [...filtered, ...loaded];
-            });
-        });
-
-        // Tags
-        const unsubTags = onSnapshot(doc(db, 'Tags', 'Tags'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                const loaded = Object.entries(data).map(([id, val]: [string, RawTagData]): Tag => ({
-                    id,
-                    name: val.Name || 'Untitled',
-                    color: val.Color || '#60a5fa',
-                    iconSvg: val.Icon || ''
+        fetch('/api/tags')
+            .then(res => res.json())
+            .then(body => {
+                const loaded: Tag[] = (body.data as ApiTag[]).map(t => ({
+                    id: t.id,
+                    name: t.name,
+                    color: t.color,
+                    iconSvg: t.iconUrl || ''
                 }));
                 setAvailableTags(loaded);
-            }
-        });
-
-        return () => {
-            unsubDoc();
-            unsubCol();
-            unsubTags();
-        };
+            })
+            .catch(err => console.warn('Failed to load tags', err));
     }, []);
 
-    const [rawProjects, setRawProjects] = useState<FirestoreProject[]>([]);
+    const [rawProjects, setRawProjects] = useState<ApiProject[]>([]);
 
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'Projects'), (snapshot) => {
-            setRawProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-        return () => unsub();
+        fetch('/api/projects')
+            .then(res => res.json())
+            .then(body => setRawProjects(body.data as ApiProject[]))
+            .catch(err => console.warn('Failed to load projects', err));
     }, []);
 
     // Memoize projects data to avoid infinite loops and unnecessary re-calculations
     const projectsData = useMemo(() => {
         return rawProjects.map(data => {
-            const v = data.Views || {};
+            const projectContributors: Contributor[] = data.contributors.map(({ contributor, roleAtProject }) => ({
+                id: contributor.id,
+                name: contributor.name,
+                role: roleAtProject || contributor.role || 'Contributor',
+                jobTitle: contributor.role || 'Contributor',
+                image: contributor.imageUrl || '',
+                links: {
+                    github: contributor.github || undefined,
+                    linkedin: contributor.linkedin || undefined,
+                    facebook: contributor.facebook || undefined,
+                    instagram: contributor.instagram || undefined,
+                    portfolio: contributor.portfolio || undefined
+                }
+            }));
 
-            const projectContributors = data.Contributors ? Object.values(data.Contributors).map((c: ProjectContributorData): Contributor => {
-                const name = c["Contributor Name"] || '';
-                const projectRole = c["Role at Project"];
-
-                const fullContrib = availableContributors.find(cont => {
-                    const cName = (cont.name || '').trim().toLowerCase();
-                    const pName = name.trim().toLowerCase();
-                    return cName === pName && cName !== '';
-                });
-
-                return {
-                    name,
-                    role: projectRole || (fullContrib ? (fullContrib.role || fullContrib.jobTitle || 'Contributor') : 'Contributor'),
-                    jobTitle: fullContrib ? (fullContrib.role || fullContrib.jobTitle || 'Contributor') : 'Contributor',
-                    image: fullContrib?.image || '',
-                    links: fullContrib?.links || {}
-                } as Contributor;
-            }) : [];
-
-            const resolveTag = (t: string | RawTagData) => {
-                const name = typeof t === 'string' ? t : (t.Name || 'Unix');
-                const globalTag = availableTags.find(gt => gt.name.toLowerCase() === name.toLowerCase());
-
-                return {
-                    name,
-                    color: (typeof t === 'object' && t.Color) ? t.Color : (globalTag?.color || getTechColor(name)),
-                    iconSvg: (typeof t === 'object' && t.Icon) ? t.Icon : (globalTag?.iconSvg || getStackIcon(name) || '')
-                };
-            };
-
-            const rawStack = data.Stack || [];
-            const normalizedStack = (Array.isArray(rawStack) ? rawStack : Object.values(rawStack))
-                .map(resolveTag)
-                .filter(t => t.name !== 'Unix');
-
-            const rawTags = data.Tags ? Object.values(data.Tags) : [];
-            const normalizedTags = rawTags.map(resolveTag).filter(t => t.name !== 'Unix');
-            const displayTags = normalizedStack.length > 0 ? normalizedStack : normalizedTags;
+            const tags: Tag[] = data.tags.map(({ tag }) => ({
+                id: tag.id,
+                name: tag.name,
+                color: tag.color,
+                iconSvg: tag.iconUrl || ''
+            }));
 
             return {
                 id: data.id,
-                title: data.Title || data.id,
-                name: data.id,
-                description: data.Description || '',
-                fullDescription: data.Description || '',
-                images: data["Project Images"] || [],
-                stack: normalizedStack.map((t: Tag) => t.name),
-                tags: displayTags,
-                repoLink: data["Repository Link"] || '',
-                liveLink: data["Live Link"] || '',
-                downloadLink: data["Download Link"] || '',
-                views: Number(v.Project || 0) || 0,
-                githubViews: Number(v.Github || 0) || 0,
-                liveViews: Number(v.Live || 0) || 0,
-                downloadViews: Number(v.Download || 0) || 0,
+                title: data.name,
+                name: data.name,
+                description: data.description || '',
+                fullDescription: data.description || '',
+                images: data.images.map(img => img.url),
+                stack: tags.map(t => t.name),
+                tags,
+                repoLink: data.repoLink || '',
+                liveLink: data.liveLink || '',
+                downloadLink: data.downloadLink || '',
+                views: data.viewsProject,
+                githubViews: data.viewsGithub,
+                liveViews: data.viewsLive,
+                downloadViews: data.viewsDownload,
                 contributors: projectContributors,
-                listing: Number(data.Listing ?? data.listing ?? 0) || 0
+                listing: data.listing
             };
         });
-    }, [rawProjects, availableContributors, availableTags]);
+    }, [rawProjects]);
 
-    const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+    const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
     const selectedProject = useMemo(() =>
         projectsData.find(p => p.id === selectedProjectId) || null,
         [projectsData, selectedProjectId]

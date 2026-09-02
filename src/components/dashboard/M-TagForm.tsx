@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { sanitizeSvg } from '../../lib/sanitize';
 import { createPortal } from 'react-dom';
 import { X, HardDrive } from 'lucide-react';
-import MFirebaseStorage from './M-FirebaseStorage';
-import firebaseIcon from '../../assets/svgs/firebase.svg';
 
 import { TagFormData } from '../../types';
 
@@ -19,7 +17,6 @@ const MTagForm = ({ isOpen, onClose, onSave, initialData }: MTagFormProps) => {
     const [color, setColor] = useState('#3b82f6');
     const [iconSvg, setIconSvg] = useState<string>('');
     const [iconFile, setIconFile] = useState<File | null>(null);
-    const [firebaseBrowserOpen, setFirebaseBrowserOpen] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -179,43 +176,22 @@ const MTagForm = ({ isOpen, onClose, onSave, initialData }: MTagFormProps) => {
                             </div>
                         )}
 
-                        {/* Upload Buttons */}
-                        <div className="flex gap-3">
-                            {/* Local Upload */}
-                            <div
-                                onClick={() => document.getElementById('tagIconUpload')?.click()}
-                                className="flex-1 border-2 border-dashed border-input-border rounded-xl p-4 text-center cursor-pointer bg-input-bg hover:bg-[var(--bg-secondary)] flex flex-col items-center gap-2 transition-all group"
-                            >
-                                <HardDrive size={24} className="text-sec group-hover:text-primary transition-colors" />
-                                <span className="text-xs text-sec group-hover:text-primary transition-colors">Local File</span>
-                                <input
-                                    id="tagIconUpload"
-                                    type="file"
-                                    accept=".svg"
-                                    onChange={handleFileChange}
-                                    className="hidden"
-                                />
-                            </div>
-
-                            {/* Firebase Storage */}
-                            <div
-                                onClick={() => setFirebaseBrowserOpen(true)}
-                                className="flex-1 border-2 border-dashed border-amber-500/30 rounded-xl p-4 text-center cursor-pointer bg-amber-500/5 hover:bg-amber-500/10 flex flex-col items-center gap-2 transition-all group"
-                            >
-                                <img src={firebaseIcon} alt="Firebase" className="w-6 h-6 grayscale group-hover:grayscale-0 transition-all" />
-                                <span className="text-xs text-amber-600/70 group-hover:text-amber-600 transition-colors">Firebase Storage</span>
-                            </div>
+                        {/* Upload Button */}
+                        <div
+                            onClick={() => document.getElementById('tagIconUpload')?.click()}
+                            className="border-2 border-dashed border-input-border rounded-xl p-4 text-center cursor-pointer bg-input-bg hover:bg-[var(--bg-secondary)] flex flex-col items-center gap-2 transition-all group"
+                        >
+                            <HardDrive size={24} className="text-sec group-hover:text-primary transition-colors" />
+                            <span className="text-xs text-sec group-hover:text-primary transition-colors">Local File</span>
+                            <input
+                                id="tagIconUpload"
+                                type="file"
+                                accept=".svg"
+                                onChange={handleFileChange}
+                                className="hidden"
+                            />
                         </div>
                     </div>
-
-                    {/* Firebase Storage Browser */}
-                    <MFirebaseStorage
-                        isOpen={firebaseBrowserOpen}
-                        onClose={() => setFirebaseBrowserOpen(false)}
-                        onSelect={(url) => { setIconSvg(url); setIconFile(null); }}
-                        fileTypes={['svg', 'png', 'jpg', 'jpeg', 'gif', 'webp']}
-                        title="Select Icon from Firebase"
-                    />
 
                     <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-[var(--card-border)]">
                         <button

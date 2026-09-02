@@ -49,12 +49,12 @@ function App() {
   useEffect(() => {
     const APP_VERSION = 'v1.0.1'; // Change this to force a wipe
     if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-      const currentVersion = localStorage.getItem('revil_app_version');
+      const currentVersion = localStorage.getItem('amin_app_version');
       if (currentVersion !== APP_VERSION) {
         console.warn('[Version Control] Mismatch detected. Purging heavy caches...');
         localStorage.clear();
         sessionStorage.clear();
-        localStorage.setItem('revil_app_version', APP_VERSION);
+        localStorage.setItem('amin_app_version', APP_VERSION);
         window.location.reload();
       }
     }

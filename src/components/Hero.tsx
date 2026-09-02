@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import anime from 'animejs';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { Plus, Briefcase } from 'lucide-react';
 
 // 1x1 transparent GIF to prevent empty src errors and allow onLoad to trigger properly
@@ -131,9 +129,16 @@ interface HeroProject {
 }
 
 interface AvailabilityData {
-    'Current Availability'?: string;
-    'Current Time'?: string;
-    'Projects Being Handled'?: Record<string, HeroProject>;
+    availabilityPercent: number;
+    timezoneOffset: number;
+    handlingProjects: HeroProject[];
+}
+
+function formatTimezoneLabel(offset: number): string {
+    const absOffset = Math.abs(offset);
+    const hours = Math.floor(absOffset);
+    const minutes = Math.round((absOffset % 1) * 60);
+    return `UTC${offset >= 0 ? '+' : '-'}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
 // Available Status Badge Component
@@ -226,12 +231,12 @@ const AvailableBadge = ({ isDark, entryDelay = 1200, isReady = true }: { isDark:
     };
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(doc(db, 'Settings', 'Availability'), (snap) => {
-            if (snap.exists()) {
-                setAvailData(snap.data());
-            }
-        });
-        return () => unsubscribe();
+        fetch('/api/settings/availability')
+            .then(res => res.json())
+            .then(body => {
+                if (body.data) setAvailData(body.data);
+            })
+            .catch(err => console.warn('Failed to load availability', err));
     }, []);
 
     useEffect(() => {
@@ -277,11 +282,9 @@ const AvailableBadge = ({ isDark, entryDelay = 1200, isReady = true }: { isDark:
         if (unmountTimeoutRef.current) clearTimeout(unmountTimeoutRef.current);
     }, []);
 
-    const availabilityStr = availData?.['Current Availability'] || '100%';
-    const availabilityPercent = parseInt(availabilityStr);
-    const currentTime = availData?.['Current Time'] || 'UTC+02:00';
-    const projectsMap = availData?.['Projects Being Handled'] || {};
-    const projects = Object.values(projectsMap);
+    const availabilityPercent = availData?.availabilityPercent ?? 100;
+    const currentTime = availData ? formatTimezoneLabel(availData.timezoneOffset) : 'UTC+02:00';
+    const projects: HeroProject[] = availData?.handlingProjects || [];
 
     const displayedProjects = projects.slice(0, 3);
     const restCount = projects.length - 3;
@@ -461,39 +464,29 @@ const Hero = ({ onLoaded, onAnimationComplete, isReady = true }: { onLoaded?: ()
     const [heroImageUrl, setHeroImageUrl] = useState<string | null>(null);
     const [isImageLoaded, setIsImageLoaded] = useState(false);
     const [imageError, setImageError] = useState(false);
-    const [profileName, setProfileName] = useState<string>('Tem Revil');
-    const [profileTitle, setProfileTitle] = useState<string>('a Front-End');
+    const [profileName, setProfileName] = useState<string>('Ahmed Amin');
+    const [profileTitle, setProfileTitle] = useState<string>('a Software Engineer & Web Developer');
     const hasNotifiedLoaded = useRef(false);
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(doc(db, 'Settings', 'Account'),
-            (docSnapshot) => {
-                if (docSnapshot.exists()) {
-                    const data = docSnapshot.data();
+        fetch('/api/settings/account')
+            .then(res => res.json())
+            .then(body => {
+                const data = body.data;
+                if (data) {
                     if (data.heroImageUrl) setHeroImageUrl(data.heroImageUrl);
-                    if (data.name && data.name !== profileName) setProfileName(data.name);
-                    if (data.title && data.title !== profileTitle) setProfileTitle(data.title);
+                    if (data.name) setProfileName(data.name);
+                    if (data.title) setProfileTitle(data.title);
                 }
-
-                // Notify parent that initial data is ready
+            })
+            .catch(err => console.warn('Failed to load hero account data', err))
+            .finally(() => {
                 if (onLoaded && !hasNotifiedLoaded.current) {
                     hasNotifiedLoaded.current = true;
                     onLoaded();
                 }
-            },
-            (error) => {
-                const status = navigator.onLine ? "Service Blocked (ISP/Firewall)" : "Offline";
-                console.warn(`[Connection] Hero sync: ${status}. Check diagnostic in lib/firebase.ts`, error);
-
-                // Even on error, we should probably allow the app to show something
-                if (onLoaded && !hasNotifiedLoaded.current) {
-                    hasNotifiedLoaded.current = true;
-                    onLoaded();
-                }
-            }
-        );
-        return () => unsubscribe();
-    }, [profileName, profileTitle, onLoaded]);
+            });
+    }, [onLoaded]);
 
     useEffect(() => {
         const checkTheme = () => setIsDark(document.documentElement.classList.contains('dark'));

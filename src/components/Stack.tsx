@@ -1,7 +1,5 @@
 import { createElement, useEffect, useRef, useState, useMemo } from 'react';
 import anime from 'animejs';
-import { db } from '../lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
 import { Github, Instagram, Linkedin, Twitter, Facebook, Mail, Link as LinkIcon, Twitch, Youtube, Code } from 'lucide-react';
 import { useSocialTracker } from '../hooks/useSocialTracker';
 
@@ -141,9 +139,9 @@ const Stack = () => {
     type StackData = { icon?: string; name?: string };
     const [stackItems, setStackItems] = useState<StackData[]>([]);
     const [socialLinks, setSocialLinks] = useState<{ name: string, url: string }[]>([
-        { name: 'Github', url: 'https://github.com/TemRevil' },
-        { name: 'LinkedIn', url: 'https://linkedin.com/in/temrevil' },
-        { name: 'Instagram', url: 'https://instagram.com/temrevil' }
+        { name: 'Github', url: 'https://github.com/ahmedamin20' },
+        { name: 'LinkedIn', url: 'https://linkedin.com/in/ahmed-amin20' },
+        { name: 'Instagram', url: 'https://instagram.com/1ahmed_amin2' }
     ]);
     const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
@@ -203,43 +201,27 @@ const Stack = () => {
 
     // Fetch Stack Items
     useEffect(() => {
-        const unsubStack = onSnapshot(doc(db, 'Settings', 'Tech Stack'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-
-                const items = Object.entries(data)
-                    .sort(([a], [b]) => Number(a) - Number(b))
-                    .map(([, item]: [string, unknown]) => {
-                        const it = item as Record<string, unknown>;
-                        return {
-                            icon: (it.Icon ?? it.icon) as string | undefined,
-                            name: (it.Name ?? it.name) as string | undefined
-                        };
-                    });
+        fetch('/api/tech-stack')
+            .then(res => res.json())
+            .then(body => {
+                const items = (body.data as { name: string; iconUrl: string }[]).map(item => ({
+                    icon: item.iconUrl,
+                    name: item.name
+                }));
                 setStackItems(items);
-            }
-        }, (error) => {
-            console.error('[Stack] Firestore error:', error);
-        });
+            })
+            .catch(err => console.error('[Stack] Failed to load tech stack:', err));
 
         // Fetch Social Links
-        const unsubAccount = onSnapshot(doc(db, 'Settings', 'Account'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                if (data && data['Social Links']) {
-                    const links = Object.entries(data['Social Links']).map(([name, url]) => ({
-                        name,
-                        url: url as string
-                    }));
-                    setSocialLinks(links);
+        fetch('/api/settings/account')
+            .then(res => res.json())
+            .then(body => {
+                const links = body.data?.socialLinks as { platform: string; url: string }[] | undefined;
+                if (links && links.length > 0) {
+                    setSocialLinks(links.map(l => ({ name: l.platform, url: l.url })));
                 }
-            }
-        });
-
-        return () => {
-            unsubStack();
-            unsubAccount();
-        };
+            })
+            .catch(err => console.warn('Failed to load social links', err));
     }, []);
 
     useEffect(() => {

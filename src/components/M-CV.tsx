@@ -2,21 +2,48 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { X, Mail, Phone, MapPin, Globe, Github, Linkedin, Instagram, ExternalLink, FileText } from 'lucide-react';
-import { collection, onSnapshot, doc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { ProjectData as FullProject } from '../types';
 import { useSocialTracker } from '../hooks/useSocialTracker';
 
 interface CVProject {
-    id: string;
+    id: number;
     title: string;
     stack: string[];
     fullData?: unknown;
     listing?: number;
 }
 
-type StackItem = { id: string; name: string; icon?: string };
-type Contributor = { id: string; name?: string; role?: string; image?: string; links?: Record<string, string> };
+type StackItem = { id: number; name: string; icon?: string };
+
+interface ApiContributor {
+    id: number;
+    name: string;
+    role: string | null;
+    imageUrl: string | null;
+    github: string | null;
+    linkedin: string | null;
+    facebook: string | null;
+    instagram: string | null;
+    portfolio: string | null;
+}
+
+interface ApiProject {
+    id: number;
+    name: string;
+    description: string | null;
+    liveLink: string | null;
+    repoLink: string | null;
+    downloadLink: string | null;
+    iconUrl: string | null;
+    viewsProject: number;
+    viewsGithub: number;
+    viewsLive: number;
+    viewsDownload: number;
+    listing: number;
+    tags: { tag: { name: string } }[];
+    contributors: { roleAtProject: string | null; contributor: ApiContributor }[];
+    images: { url: string }[];
+}
 
 interface MCVProps {
     isOpen: boolean;
@@ -29,175 +56,127 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
     const [projects, setProjects] = useState<CVProject[]>([]);
     const [socialLinks, setSocialLinks] = useState<{ name: string; url: string }[]>([]);
     const [contactInfo, setContactInfo] = useState({
-        email: 'temrevil@gmail.com',
-        phone: '+20 100 130 8280',
-        location: 'Egypt, MA'
+        email: '',
+        phone: '',
+        location: ''
     });
+    const [bio, setBio] = useState('');
+    const [ownerName, setOwnerName] = useState('');
+    const [education, setEducation] = useState<{ degree: string; institution: string; period: string | null }[]>([]);
+    const [impact, setImpact] = useState<{ text: string }[]>([]);
+    const [languages, setLanguages] = useState<{ name: string; level: string }[]>([]);
     const [availableStack, setAvailableStack] = useState<StackItem[]>([]);
-    const [availableContributors, setAvailableContributors] = useState<Contributor[]>([]);
 
-    // Fetch Contributors
+    // Fetch contact info
     useEffect(() => {
-        const unsubDoc = onSnapshot(doc(db, 'Tags', 'Contributors'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                const loaded = Object.entries(data)
-                    .filter(([, val]) => val && typeof val === 'object' && ((val as Record<string, unknown>).Name || (val as Record<string, unknown>).name))
-                    .map(([id, val]: [string, unknown]) => {
-                        const v = val as Record<string, unknown>;
-                        const links = v["Social Accounts"] && typeof v["Social Accounts"] === 'object' ? v["Social Accounts"] as Record<string, string> : {};
-                        return {
-                            id,
-                            name: typeof v.Name === 'string' ? v.Name : typeof v.name === 'string' ? v.name : undefined,
-                            role: typeof v.Role === 'string' ? v.Role : typeof v.role === 'string' ? v.role : undefined,
-                            image: typeof v.Image === 'string' ? v.Image : typeof v.image === 'string' ? v.image : undefined,
-                            links
-                        };
+        fetch('/api/settings/account')
+            .then(res => res.json())
+            .then(body => {
+                const data = body.data;
+                if (data) {
+                    setContactInfo({
+                        email: data.email || '',
+                        phone: data.phone || '',
+                        location: data.location || ''
                     });
-                setAvailableContributors(prev => {
-                    const filtered = prev.filter(p => !loaded.some(l => l.id === p.id));
-                    return [...filtered, ...loaded];
-                });
-            }
-        });
-
-        const unsubCol = onSnapshot(collection(db, 'Tags', 'Contributors', 'Profiles'), (snapshot) => {
-            const loaded = snapshot.docs.map(d => {
-                const val = d.data();
-                return {
-                    id: d.id,
-                    name: val.Name || val.name,
-                    role: val.Role || val.role,
-                    image: val.Image || val.image,
-                    links: val["Social Accounts"] || val.links || val.socials || {}
-                };
-            });
-            setAvailableContributors(prev => {
-                const filtered = prev.filter(p => !loaded.some(l => l.id === p.id));
-                return [...filtered, ...loaded];
-            });
-        });
-
-        return () => {
-            unsubDoc();
-            unsubCol();
-        };
+                    setBio(data.bio || '');
+                    setOwnerName(data.name || '');
+                    setEducation(data.education || []);
+                    setImpact(data.impact || []);
+                    setLanguages(data.languages || []);
+                }
+            })
+            .catch(err => console.warn('Failed to load contact info', err));
     }, []);
 
     // Fetch Tech Stack
     useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'Settings', 'Tech Stack'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                const items = Object.entries(data)
-                    .sort(([a], [b]) => Number(a) - Number(b))
-                    .map(([id, val]: [string, unknown]) => {
-                        const v = val as Record<string, unknown>;
-                        return {
-                            id,
-                            name: typeof v.Name === 'string' ? v.Name : typeof v.name === 'string' ? v.name : '',
-                            icon: typeof v.Icon === 'string' ? v.Icon : typeof v.icon === 'string' ? v.icon : undefined
-                        };
-                    });
+        fetch('/api/tech-stack')
+            .then(res => res.json())
+            .then(body => {
+                const items: StackItem[] = (body.data as { id: number; name: string; iconUrl: string }[]).map(i => ({
+                    id: i.id,
+                    name: i.name,
+                    icon: i.iconUrl
+                }));
                 setAvailableStack(items);
-            }
-        });
-        return () => unsub();
+            })
+            .catch(err => console.warn('Failed to load tech stack', err));
     }, []);
 
-    // Fetch Projects from Firestore
+    // Fetch Projects
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'Projects'), (snapshot) => {
-            const loaded = snapshot.docs.map(doc => {
-                const data = doc.data();
-                const rawStack = data.Stack || [];
-                const normalizedStack = (Array.isArray(rawStack) ? rawStack : Object.values(rawStack))
-                    .map((t: unknown) => {
-                        if (typeof t === 'string') return t;
-                        const u = t as Record<string, unknown>;
-                        return typeof u.name === 'string' ? u.name : typeof u.Name === 'string' ? u.Name : '';
-                    })
-                    .filter(t => t !== '' && t !== 'Unix');
+        fetch('/api/projects')
+            .then(res => res.json())
+            .then(body => {
+                const loaded: CVProject[] = (body.data as ApiProject[]).map((data) => {
+                    const stack = data.tags.map(({ tag }) => tag.name);
 
-                // Map exactly like Projects.tsx expects
-                const projectContributors = data.Contributors ? Object.values(data.Contributors).map((c: unknown) => {
-                    const v = c as Record<string, unknown>;
-                    const name = typeof v["Contributor Name"] === 'string' ? v["Contributor Name"] : '';
-                    const projectRole = typeof v["Role at Project"] === 'string' ? v["Role at Project"] : undefined;
+                    const projectContributors = data.contributors.map(({ contributor, roleAtProject }) => ({
+                        name: contributor.name,
+                        role: roleAtProject || contributor.role || 'Contributor',
+                        jobTitle: contributor.role || 'Contributor',
+                        image: contributor.imageUrl || '',
+                        links: {
+                            github: contributor.github || undefined,
+                            linkedin: contributor.linkedin || undefined,
+                            facebook: contributor.facebook || undefined,
+                            instagram: contributor.instagram || undefined,
+                            portfolio: contributor.portfolio || undefined
+                        }
+                    }));
 
-                    const fullContrib = availableContributors.find(cont => {
-                        const cName = (cont.name || '').trim().toLowerCase();
-                        const pName = name.trim().toLowerCase();
-                        return cName === pName && cName !== '';
-                    });
+                    const mappedProject = {
+                        id: data.id,
+                        title: data.name,
+                        name: data.name,
+                        description: data.description || '',
+                        fullDescription: data.description || '',
+                        images: data.images.map(img => img.url),
+                        stack,
+                        contributors: projectContributors,
+                        repoLink: data.repoLink,
+                        liveLink: data.liveLink,
+                        downloadLink: data.downloadLink || '',
+                        views: data.viewsProject,
+                        githubViews: data.viewsGithub,
+                        liveViews: data.viewsLive,
+                        downloadViews: data.viewsDownload
+                    };
 
                     return {
-                        name,
-                        role: projectRole || (fullContrib ? (fullContrib.role || (((fullContrib as unknown) as Record<string, unknown>).jobTitle as string) || 'Contributor') : 'Contributor'),
-                        jobTitle: fullContrib ? (fullContrib.role || (((fullContrib as unknown) as Record<string, unknown>).jobTitle as string) || 'Contributor') : 'Contributor',
-                        image: fullContrib?.image || '',
-                        links: fullContrib?.links || {}
+                        id: data.id,
+                        title: mappedProject.title,
+                        stack,
+                        fullData: mappedProject,
+                        listing: data.listing
                     };
-                }) : [];
+                }).sort((a, b) => {
+                    const aVal = a.listing && a.listing > 0 ? a.listing : 999999;
+                    const bVal = b.listing && b.listing > 0 ? b.listing : 999999;
+                    if (aVal !== bVal) return aVal - bVal;
+                    return (a.title || '').localeCompare(b.title || '');
+                });
+                setProjects(loaded);
+            })
+            .catch(err => console.warn('Failed to load projects', err));
+    }, []);
 
-                const mappedProject = {
-                    id: doc.id,
-                    title: data.Title || doc.id,
-                    name: doc.id,
-                    description: data.Description || '',
-                    fullDescription: data.Description || '',
-                    images: data["Project Images"] || (data.Images ? Object.values(data.Images) : []),
-                    stack: normalizedStack,
-                    contributors: projectContributors,
-                    repoLink: data["Repository Link"],
-                    liveLink: data["Live Link"],
-                    downloadLink: data["Download Link"] || '',
-                    views: Number(data.Views?.Project || 0),
-                    githubViews: Number(data.Views?.Github || 0),
-                    liveViews: Number(data.Views?.Live || 0),
-                    downloadViews: Number(data.Views?.Download || 0)
-                };
-
-                return {
-                    id: doc.id,
-                    title: mappedProject.title,
-                    stack: normalizedStack,
-                    fullData: mappedProject,
-                    listing: data.Listing ?? data.listing ?? 0
-                };
-            }).sort((a, b) => {
-                const aVal = a.listing && a.listing > 0 ? a.listing : 999999;
-                const bVal = b.listing && b.listing > 0 ? b.listing : 999999;
-                if (aVal !== bVal) return aVal - bVal;
-                return (a.title || '').localeCompare(b.title || '');
-            });
-            setProjects(loaded);
-        });
-        return () => unsub();
-    }, [availableContributors]); // Re-run when contributors are updated to ensure mapping is correct
-
-    // Fetch Social Links from Firestore
+    // Fetch Social Links
     useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'Settings', 'Account'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                if (data && data['Social Links']) {
-                    const links = Object.entries(data['Social Links'])
-                        .filter(([name]) => !name.toLowerCase().includes('instagram'))
-                        .map(([name, url]) => ({
-                            name,
-                            url: url as string
-                        }));
-                    setSocialLinks(links);
+        fetch('/api/settings/account')
+            .then(res => res.json())
+            .then(body => {
+                const links = body.data?.socialLinks as { platform: string; url: string }[] | undefined;
+                if (links) {
+                    setSocialLinks(
+                        links
+                            .filter(l => !l.platform.toLowerCase().includes('instagram'))
+                            .map(l => ({ name: l.platform, url: l.url }))
+                    );
                 }
-                setContactInfo(prev => ({
-                    email: data.Email || prev.email,
-                    phone: data.Phone || prev.phone,
-                    location: data.Location || prev.location
-                }));
-            }
-        });
-        return () => unsub();
+            })
+            .catch(err => console.warn('Failed to load social links', err));
     }, []);
 
     // Close on Escape
@@ -303,7 +282,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                     <section className="space-y-4">
                                         <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Overview</h2>
                                         <p className="text-lg leading-relaxed text-sec font-medium block">
-                                            Frontend Developer with 3+ year building React applications. Specialized in modern JavaScript frameworks, <span className="text-primary">Firebase integration</span>, and <span className="text-primary">AI-powered solutions using tools, once published, with exclusive invitations to experience them firsthand</span>. Seeking remote opportunities and contributing my technical skills.
+                                            {bio || 'Frontend Developer with 3+ year building React applications. Specialized in modern JavaScript frameworks, Firebase integration, and AI-powered solutions using tools, once published, with exclusive invitations to experience them firsthand. Seeking remote opportunities and contributing my technical skills.'}
                                         </p>
                                     </section>
 
@@ -342,25 +321,24 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                     </section>
 
                                     {/* Education Section */}
-                                    <section className="space-y-8 pt-4">
-                                        <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Academic Background</h2>
-                                        <div className="space-y-8 pt-2">
-                                            <div className="space-y-4">
-                                                <div className="flex justify-between items-start">
-                                                    <h3 className="text-xl font-bold text-primary">Systems Information & Comp. Eng.</h3>
-                                                    <span className="text-[10px] font-black text-blue-500 bg-blue-500/10 px-2 py-1 rounded">2025 — 2030</span>
-                                                </div>
-                                                <p className="text-sec text-sm">MISR Engineering & Technology (MET) • First Year</p>
+                                    {education.length > 0 && (
+                                        <section className="space-y-8 pt-4">
+                                            <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Academic Background</h2>
+                                            <div className="space-y-8 pt-2">
+                                                {education.map((entry, i) => (
+                                                    <div key={i} className={`space-y-4 ${i > 0 ? 'opacity-60' : ''}`}>
+                                                        <div className="flex justify-between items-start">
+                                                            <h3 className="text-xl font-bold text-primary">{entry.degree}</h3>
+                                                            {entry.period && (
+                                                                <span className={`text-[10px] font-black px-2 py-1 rounded ${i === 0 ? 'text-blue-500 bg-blue-500/10' : 'text-muted border border-black/10 dark:border-white/10'}`}>{entry.period}</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sec text-sm">{entry.institution}</p>
+                                                    </div>
+                                                ))}
                                             </div>
-                                            <div className="space-y-4 opacity-60">
-                                                <div className="flex justify-between items-start">
-                                                    <h3 className="text-xl font-bold text-primary">Industrial Technology</h3>
-                                                    <span className="text-[10px] font-black text-muted border border-black/10 dark:border-white/10 px-2 py-1 rounded">GRAD 2025</span>
-                                                </div>
-                                                <p className="text-sec text-sm">El Mansoura Industrial School • 5-year program</p>
-                                            </div>
-                                        </div>
-                                    </section>
+                                        </section>
+                                    )}
                                 </div>
 
                                 <aside className="space-y-12">
@@ -390,14 +368,16 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                     </section>
 
                                     {/* Achievements */}
-                                    <section className="space-y-6">
-                                        <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Impact</h2>
-                                        <div className="space-y-4 text-xs leading-relaxed text-sec pt-2">
-                                            <p>Built <span className="text-primary font-bold">3 major apps</span> in 1st year.</p>
-                                            <p>Native <span className="text-primary font-bold">AI integration</span> specialist.</p>
-                                            <p>Cross-platform <span className="text-primary font-bold">Electron</span> expert.</p>
-                                        </div>
-                                    </section>
+                                    {impact.length > 0 && (
+                                        <section className="space-y-6">
+                                            <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Impact</h2>
+                                            <div className="space-y-4 text-xs leading-relaxed text-sec pt-2">
+                                                {impact.map((entry, i) => (
+                                                    <p key={i}>{entry.text}</p>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    )}
 
                                     {/* Presence */}
                                     <section className="space-y-6">
@@ -425,14 +405,19 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
 
                             {/* Footer */}
                             <footer className="pt-12 border-t border-black/5 dark:border-white/5 flex flex-col items-center gap-4">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">English (Prof.)</span>
-                                    <div className="w-1 h-1 rounded-full bg-black/10 dark:bg-white/10" />
-                                    <span className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Arabic (Native)</span>
-                                </div>
+                                {languages.length > 0 && (
+                                    <div className="flex items-center gap-2 flex-wrap justify-center">
+                                        {languages.map((lang, i) => (
+                                            <span key={i} className="flex items-center gap-2">
+                                                {i > 0 && <div className="w-1 h-1 rounded-full bg-black/10 dark:bg-white/10" />}
+                                                <span className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">{lang.name} ({lang.level})</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                                 <p className="text-[9px] font-bold text-muted uppercase tracking-widest leading-loose text-center">
                                     Engineered with precision using React & Firebase<br />
-                                    © {new Date().getFullYear()} Mohammed Ahmed
+                                    © {new Date().getFullYear()} {ownerName || 'Ahmed Amin'}
                                 </p>
                             </footer>
                         </div>

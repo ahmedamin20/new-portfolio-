@@ -4,7 +4,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Function to check if the user is the admin
     function isAdmin() {
-      return request.auth != null && request.auth.token.email == 'temrevil@gmail.com';
+      return request.auth != null && request.auth.token.email == 'tc.supply6@gmail.com';
     }
 
     // Allow public read access to core portfolio data

@@ -2,51 +2,53 @@ import { useState, useEffect, useMemo } from 'react';
 import { sanitizeSvg } from '../../lib/sanitize';
 import { createPortal } from 'react-dom';
 import { Plus, Search, MoreVertical, ExternalLink, Eye, Edit2, Trash2, Github, GripVertical } from 'lucide-react';
-import { collection, doc, onSnapshot, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { Reorder, useDragControls } from 'motion/react';
-import { ref, uploadBytes, getDownloadURL, listAll, deleteObject } from 'firebase/storage';
-import { db, storage } from '../../lib/firebase';
+import { uploadToCloudinary, deleteFromCloudinaryUrl } from '../../lib/cloudinary';
+import { apiFetch } from '../../lib/apiFetch';
 import Alert from '../Alert';
 import useSafeAlert from '../../hooks/useSafeAlert';
 import MProjectForm from './M-ProjectForm';
 import { ProjectData, ContributorData, ProjectFormData, TagData } from '../../types';
 import MProjectView from '../M-ProjectView';
-import { getTechColor, getStackIcon } from '../../utils/projectUtils';
 import MContributorView, { Contributor } from '../M-ContributorView';
 import Loader from '../reactbits/Loader';
 import MConfirmModal, { ConfirmType } from './M-ConfirmModal';
 
-interface RawFirestoreTag {
-    Name?: string;
-    Color?: string;
-    Icon?: string;
-}
-
-interface RawFirestoreContributor {
-    Name?: string;
-    Role?: string;
-    Image?: string;
-    "Social Accounts"?: Record<string, string>;
-}
-
-interface ProjectContributorEntry {
-    "Contributor Name"?: string;
-    "Role at Project"?: string;
-}
-
-interface ResolvedTag {
-    id?: string;
+interface ApiTag {
+    id: number;
     name: string;
-    color?: string;
-    iconSvg?: string;
+    color: string;
+    iconUrl: string | null;
 }
 
-interface ResolvedContributor {
-    id?: string;
+interface ApiContributor {
+    id: number;
     name: string;
-    role: string;
-    image?: string;
-    links?: Record<string, string | undefined>;
+    role: string | null;
+    imageUrl: string | null;
+    github: string | null;
+    linkedin: string | null;
+    facebook: string | null;
+    instagram: string | null;
+    portfolio: string | null;
+}
+
+interface ApiProject {
+    id: number;
+    name: string;
+    description: string | null;
+    liveLink: string | null;
+    repoLink: string | null;
+    downloadLink: string | null;
+    iconUrl: string | null;
+    viewsProject: number;
+    viewsGithub: number;
+    viewsLive: number;
+    viewsDownload: number;
+    listing: number;
+    tags: { tag: ApiTag }[];
+    contributors: { roleAtProject: string | null; contributor: ApiContributor }[];
+    images: { url: string }[];
 }
 
 
@@ -375,130 +377,61 @@ const DProjects = () => {
         setActiveMenu(null);
     };
 
-    const [availableTags, setAvailableTags] = useState<ResolvedTag[]>([]);
-    const [availableContributors, setAvailableContributors] = useState<ResolvedContributor[]>([]);
+    const loadProjects = async () => {
+        try {
+            const res = await fetch('/api/projects');
+            const body = await res.json();
+            const loaded: ProjectData[] = (body.data as ApiProject[]).map((p) => {
+                const tags: TagData[] = p.tags.map(({ tag }) => ({
+                    id: tag.id,
+                    name: tag.name,
+                    color: tag.color,
+                    iconSvg: tag.iconUrl || undefined
+                }));
 
-    useEffect(() => {
-        // Fetch Tags Metadata
-        const unsubTags = onSnapshot(doc(db, 'Tags', 'Tags'),
-            (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    const loaded: ResolvedTag[] = Object.entries(data).map(([key, value]: [string, RawFirestoreTag]) => ({
-                        id: key,
-                        name: value.Name || '',
-                        color: value.Color,
-                        iconSvg: value.Icon
-                    }));
-                    setAvailableTags(loaded);
-                }
-            },
-            () => {
-                const status = navigator.onLine ? "Service Blocked (ISP/Firewall)" : "Offline";
-                showAlert({ type: 'warning', message: `Tags sync failed: ${status}` });
-            }
-        );
-
-        // Fetch Contributors Metadata
-        const unsubContrib = onSnapshot(doc(db, 'Tags', 'Contributors'),
-            (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    const loaded: ResolvedContributor[] = Object.entries(data).map(([key, value]: [string, RawFirestoreContributor]) => ({
-                        id: key,
-                        name: value.Name || '',
-                        role: value.Role || '',
-                        image: value.Image || undefined,
-                        links: value['Social Accounts'] || {}
-                    }));
-                    setAvailableContributors(loaded);
-                }
-            },
-            () => {
-                const status = navigator.onLine ? "Service Blocked (ISP/Firewall)" : "Offline";
-                showAlert({ type: 'warning', message: `Contributors sync failed: ${status}` });
-            }
-        );
-
-        return () => {
-            unsubTags();
-            unsubContrib();
-        };
-    }, [showAlert]);
-
-    // Fetch Projects from Firestore
-    useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'Projects'), (snapshot) => {
-            const loaded: ProjectData[] = snapshot.docs.map(doc => {
-                const data = doc.data();
-
-                // Map Firestore structure back to ProjectData using metadata for enrichment
-                const tags: TagData[] = [];
-                if (data.Tags) {
-                    (Object.values(data.Tags) as string[]).forEach((tagName) => {
-                        // Find full tag data from availableTags
-                        const fullTag = availableTags.find(t => t.name === tagName);
-                        tags.push(fullTag || { name: tagName });
-                    });
-                }
-
-                const contributors: ContributorData[] = [];
-                if (data.Contributors) {
-                    (Object.values(data.Contributors) as ProjectContributorEntry[]).forEach((c) => {
-                        const name = c["Contributor Name"] || '';
-                        const projectRole = c["Role at Project"];
-
-                        // Find full contributor data from availableContributors for images/links
-                        const fullContrib = availableContributors.find(cont =>
-                            cont.name?.trim().toLowerCase() === name?.trim().toLowerCase()
-                        );
-
-                        contributors.push({
-                            ...(fullContrib || {}),
-                            name,
-                            role: projectRole || (fullContrib ? fullContrib.role : 'Contributor'),
-                            // The "Real Role" from their profile
-                            jobTitle: fullContrib ? fullContrib.role : 'Contributor'
-                        });
-                    });
-                }
-
-                const statusV = data.Views || {};
-                const rawStack = data.Stack || [];
-                const normalizedStack = (Array.isArray(rawStack) ? rawStack : Object.values(rawStack)).map((t: string | RawFirestoreTag) => {
-                    const name = typeof t === 'string' ? t : (t.Name || 'Unix');
-                    const globalTag = availableTags.find((gt) => gt.name?.toLowerCase() === name.toLowerCase());
-
-                    return {
-                        name,
-                        color: (typeof t === 'object' && (t.Color)) ? t.Color : (globalTag?.color || getTechColor(name)),
-                        iconSvg: (typeof t === 'object' && (t.Icon)) ? t.Icon : (globalTag?.iconSvg || getStackIcon(name) || '')
-                    };
-                }).filter(t => t.name !== 'Unix');
+                const contributors: ContributorData[] = p.contributors.map(({ contributor, roleAtProject }) => ({
+                    id: contributor.id,
+                    name: contributor.name,
+                    role: roleAtProject || contributor.role || 'Contributor',
+                    jobTitle: contributor.role || 'Contributor',
+                    image: contributor.imageUrl || undefined,
+                    socials: {
+                        github: contributor.github || undefined,
+                        linkedin: contributor.linkedin || undefined,
+                        facebook: contributor.facebook || undefined,
+                        instagram: contributor.instagram || undefined,
+                        portfolio: contributor.portfolio || undefined
+                    }
+                }));
 
                 return {
-                    id: doc.id,
-                    name: doc.id,
-                    description: data.Description || '',
-                    liveLink: data["Live Link"] || '',
-                    repoLink: data["Repository Link"] || '',
-                    downloadLink: data["Download Link"] || '',
-                    icon: data["Project Icon"] || '',
-                    tags: normalizedStack.length > 0 ? normalizedStack : tags,
-                    stack: normalizedStack.map(t => t.name),
+                    id: p.id,
+                    name: p.name,
+                    description: p.description || '',
+                    liveLink: p.liveLink || '',
+                    repoLink: p.repoLink || '',
+                    downloadLink: p.downloadLink || '',
+                    icon: p.iconUrl || '',
+                    tags,
+                    stack: tags.map(t => t.name),
                     contributors,
-                    views: Number(statusV.Project || 0) || 0,
-                    githubViews: Number(statusV.Github || 0) || 0,
-                    liveViews: Number(statusV.Live || 0) || 0,
-                    downloadViews: Number(data.Views?.Download || 0) || 0,
-                    images: data["Project Images"] || [],
-                    listing: Number(data.Listing ?? data.listing ?? 0) || 0
+                    views: p.viewsProject,
+                    githubViews: p.viewsGithub,
+                    liveViews: p.viewsLive,
+                    downloadViews: p.viewsDownload,
+                    images: p.images.map(img => img.url),
+                    listing: p.listing
                 } as ProjectData;
             });
             setProjects(loaded);
-        });
-        return () => unsub();
-    }, [availableTags, availableContributors]);
+        } catch {
+            showAlert({ type: 'warning', message: 'Projects sync failed' });
+        }
+    };
+
+    useEffect(() => {
+        loadProjects();
+    }, []);
 
     const handleDeleteProject = (projectId: string | number) => {
         setConfirmConfig({
@@ -510,23 +443,26 @@ const DProjects = () => {
                 try {
                     setIsLoading(true);
 
-                    // Delete images from Firebase Storage
-                    const folderRef = ref(storage, `src/projects-imgs/${projectId}`);
-                    try {
-                        const listResult = await listAll(folderRef);
-                        for (const item of listResult.items) {
+                    const project = projects.find(p => p.id === projectId);
+
+                    await apiFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+
+                    // Best-effort cleanup of the project's Cloudinary files
+                    if (project) {
+                        const filesToDelete = [
+                            ...(typeof project.icon === 'string' ? [project.icon] : []),
+                            ...project.images.filter((img): img is string => typeof img === 'string')
+                        ];
+                        for (const url of filesToDelete) {
                             try {
-                                await deleteObject(item);
+                                await deleteFromCloudinaryUrl(url);
                             } catch (err) {
-                                console.warn(`Failed to delete storage item ${item.name}:`, err);
+                                console.warn('Failed to delete Cloudinary file:', url, err);
                             }
                         }
-                    } catch (e) {
-                        console.warn('Could not clean up storage folder:', e);
                     }
 
-                    // Delete Firestore document
-                    await deleteDoc(doc(db, 'Projects', projectId.toString()));
+                    await loadProjects();
                     showAlert({ type: 'success', message: 'Project deleted successfully.' });
                 } catch {
                     showAlert({ type: 'error', message: 'Failed to delete project.' });
@@ -541,156 +477,56 @@ const DProjects = () => {
     const handleSaveProject = async (data: ProjectFormData) => {
         try {
             setIsLoading(true);
-            const projectName = data.name;
-            const oldName = editingProject?.name;
-            const isNameChanged = oldName && oldName !== projectName;
 
             let iconUrl = typeof data.icon === 'string' ? data.icon : '';
             const imageUrls: string[] = [];
 
-            // 1. Handle Rename in Storage if name changed
-            if (isNameChanged) {
-
-                const oldFolderRef = ref(storage, `src/projects-imgs/${oldName}`);
-                try {
-                    const listResult = await listAll(oldFolderRef);
-
-                    for (const item of listResult.items) {
-                        try {
-                            // Use getDownloadURL + fetch instead of getBlob to avoid CORS issues
-                            const downloadUrl = await getDownloadURL(item);
-                            const response = await fetch(downloadUrl);
-                            const blob = await response.blob();
-                            const newRef = ref(storage, `src/projects-imgs/${projectName}/${item.name}`);
-
-                            await uploadBytes(newRef, blob);
-                            const newFileUrl = await getDownloadURL(newRef);
-
-                            // Update iconUrl if this was the icon
-                            if (item.name === 'icon' && typeof data.icon === 'string' && data.icon.includes(item.name)) {
-                                iconUrl = newFileUrl;
-                            }
-
-                            // Delete old one after successful copy
-                            await deleteObject(item);
-                        } catch (itemErr) {
-                            console.error(`Failed to move item ${item.name}:`, itemErr);
-                        }
-                    }
-                } catch (e) {
-                    console.error("Storage listAll or folder access failed:", e);
-                }
-            }
-
-            // 2. Upload Project Icon (if new file provided)
+            // 1. Upload Project Icon (if new file provided)
             if (data.icon && typeof data.icon !== 'string') {
-                const iconFile = data.icon as File;
-                const iconRef = ref(storage, `src/projects-imgs/${projectName}/icon`);
-                await uploadBytes(iconRef, iconFile);
-                iconUrl = await getDownloadURL(iconRef);
+                iconUrl = await uploadToCloudinary(data.icon as File, 'projects');
             }
 
-            // 3. Upload Project Images
+            // 2. Upload Project Images
             for (const file of data.images) {
                 if (typeof file === 'string') {
-                    // If it was an old URL and we renamed, we need to point to the new one
-                    const encodedOldName = encodeURIComponent(oldName || '');
-                    const oldPathChunk = `projects-imgs%2F${encodedOldName}%2F`;
-
-                    if (isNameChanged && file.includes(oldPathChunk)) {
-                        const fileName = file.split('/').pop()?.split('?')[0].split('%2F').pop();
-                        if (fileName) {
-                            try {
-                                const newRef = ref(storage, `src/projects-imgs/${projectName}/${decodeURIComponent(fileName)}`);
-                                const newUrl = await getDownloadURL(newRef);
-                                imageUrls.push(newUrl);
-                            } catch (err) {
-                                console.warn(`Could not get new URL for ${fileName}, keeping old:`, err);
-                                imageUrls.push(file);
-                            }
-                        } else {
-                            imageUrls.push(file);
-                        }
-                    } else {
-                        imageUrls.push(file);
-                    }
+                    imageUrls.push(file);
                 } else if (file instanceof File) {
-                    const imgRef = ref(storage, `src/projects-imgs/${projectName}/${file.name}`);
-                    await uploadBytes(imgRef, file);
-                    const url = await getDownloadURL(imgRef);
+                    const url = await uploadToCloudinary(file, 'projects');
                     imageUrls.push(url);
                 }
             }
 
-            // 3b. Clean up removed images from Storage
-            if (editingProject) {
-                try {
-                    const folderRef = ref(storage, `src/projects-imgs/${projectName}`);
-                    const listResult = await listAll(folderRef);
-
-                    // Collect all final URLs (images + icon) for comparison
-                    const keptUrls = new Set([...imageUrls, iconUrl].filter(Boolean));
-
-                    for (const item of listResult.items) {
-                        // Skip the icon file — it's managed separately
-                        if (item.name === 'icon') continue;
-
-                        try {
-                            const fileUrl = await getDownloadURL(item);
-                            // If this storage file's URL is not in the kept set, delete it
-                            if (!keptUrls.has(fileUrl)) {
-                                await deleteObject(item);
-                            }
-                        } catch {
-                            // File might already be deleted or inaccessible, skip
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Could not clean up removed images:', e);
-                }
-            }
-
-            // 4. Prepare Tags Map
-            const tagsMap: Record<string, string> = {};
-            data.tags.forEach((tag: TagData, idx: number) => {
-                tagsMap[(idx + 1).toString()] = tag.name;
-            });
-
-            // 5. Prepare Contributors Map
-            const contributorsMap: Record<string, { "Contributor Name": string; "Role at Project": string }> = {};
-            data.contributors.forEach((contrib: ContributorData, idx: number) => {
-                contributorsMap[(idx + 1).toString()] = {
-                    "Contributor Name": contrib.name,
-                    "Role at Project": contrib.role
-                };
-            });
-
-            // 6. Construct Document Data
-            const projectDoc = {
-                "Description": data.description,
-                "Live Link": data.liveLink,
-                "Download Link": data.downloadLink || '',
-                "Project Icon": iconUrl,
-                "Repository Link": data.repoLink,
-                "Contributors": contributorsMap,
-                "Tags": tagsMap,
-                "Project Images": imageUrls,
-                "Views": {
-                    "Github": (data.githubViews || 0).toString(),
-                    "Live": (data.liveViews || 0).toString(),
-                    "Download": (data.downloadViews || 0).toString(),
-                    "Project": (data.views || 0).toString()
-                },
-                "Listing": data.listing || 0
+            const payload = {
+                name: data.name,
+                description: data.description,
+                liveLink: data.liveLink,
+                repoLink: data.repoLink,
+                downloadLink: data.downloadLink || '',
+                iconUrl,
+                images: imageUrls,
+                tagIds: data.tags.map((tag: TagData) => Number(tag.id)).filter((id) => !isNaN(id)),
+                contributors: data.contributors.map((contrib: ContributorData) => ({
+                    contributorId: Number(contrib.id),
+                    roleAtProject: contrib.role
+                })).filter((c) => !isNaN(c.contributorId)),
+                listing: data.listing || 0
             };
 
-            // 7. Save to Firestore
-            if (isNameChanged) {
-                await deleteDoc(doc(db, 'Projects', oldName));
+            if (editingProject?.id) {
+                await apiFetch(`/api/projects/${editingProject.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                await apiFetch('/api/projects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
             }
 
-            await setDoc(doc(db, 'Projects', projectName), projectDoc);
-
+            await loadProjects();
             setIsModalOpen(false);
         } catch {
             showAlert({ type: 'error', message: 'Failed to save project. Please check your data and try again.' });
@@ -705,17 +541,18 @@ const DProjects = () => {
     };
 
     const persistOrder = async () => {
-        // Update indices in Firestore
-        const batch = writeBatch(db);
-        filteredProjects.forEach((p, idx) => {
-            if (p.id) {
-                const pRef = doc(db, 'Projects', p.id.toString());
-                batch.update(pRef, { Listing: idx + 1 });
-            }
-        });
-
         try {
-            await batch.commit();
+            await Promise.all(
+                filteredProjects.map((p, idx) =>
+                    p.id
+                        ? apiFetch(`/api/projects/${p.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ listing: idx + 1 })
+                        })
+                        : Promise.resolve()
+                )
+            );
         } catch (error) {
             console.error("Reorder persistence failed:", error);
             showAlert({ type: 'error', message: 'Failed to save projects order.' });

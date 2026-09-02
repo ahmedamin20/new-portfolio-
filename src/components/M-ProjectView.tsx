@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Github, ExternalLink, ChevronLeft, ChevronRight, Upload, User, Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react';
-import { doc, onSnapshot, updateDoc, increment } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { sanitizeSvg } from '../lib/sanitize';
 import { isVideoFile, getStackIcon, getTechColor } from '../utils/projectUtils';
 import { ProjectData as Project, ContributorData as Contributor, TagData as TagItem } from '../types';
@@ -503,34 +501,32 @@ const MProjectView = ({ project: initialProject, onClose, onContributorClick }: 
         onClose();
     };
 
+    const incrementView = async (field: 'project' | 'github' | 'live' | 'download') => {
+        if (!project.id) return;
+        try {
+            await fetch(`/api/projects/${project.id}/view`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ field })
+            });
+        } catch (err) {
+            console.warn(`Could not increment ${field} views:`, err);
+        }
+    };
+
     const handleGithubClick = async () => {
         if (!project.repoLink || !project.id) return;
-        try {
-            const projectRef = doc(db, 'Projects', project.id.toString());
-            await updateDoc(projectRef, { "Views.Github": increment(1) });
-        } catch (err) {
-            console.warn("Could not increment github views:", err);
-        }
+        await incrementView('github');
     };
 
     const handleLiveClick = async () => {
         if ((!project.liveLink && !project.demoLink) || !project.id) return;
-        try {
-            const projectRef = doc(db, 'Projects', project.id.toString());
-            await updateDoc(projectRef, { "Views.Live": increment(1) });
-        } catch (err) {
-            console.warn("Could not increment live views:", err);
-        }
+        await incrementView('live');
     };
 
     const handleDownloadClick = async () => {
         if (!project.downloadLink || !project.id) return;
-        try {
-            const projectRef = doc(db, 'Projects', project.id.toString());
-            await updateDoc(projectRef, { "Views.Download": increment(1) });
-        } catch (err) {
-            console.warn("Could not increment download views:", err);
-        }
+        await incrementView('download');
     };
 
 
@@ -565,95 +561,64 @@ const MProjectView = ({ project: initialProject, onClose, onContributorClick }: 
 
     // Fetch Global Tags for Icons/Colors
     useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'Tags', 'Tags'), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data() as Record<string, { Name?: string; Color?: string; Icon?: string }>;
-                const loaded = Object.entries(data).map(([id, val]): TagItem => ({
-                    id,
-                    name: val.Name || 'Untitled',
-                    color: val.Color || '#60a5fa',
-                    iconSvg: val.Icon || ''
+        fetch('/api/tags')
+            .then(res => res.json())
+            .then(body => {
+                const loaded: TagItem[] = (body.data as { id: number; name: string; color: string; iconUrl: string | null }[]).map(t => ({
+                    id: t.id,
+                    name: t.name,
+                    color: t.color,
+                    iconSvg: t.iconUrl || ''
                 }));
                 setAvailableTags(loaded);
-            }
-        });
-        return () => unsub();
+            })
+            .catch(err => console.warn('Failed to load tags', err));
     }, []);
 
-    // Ref to track latest availableTags without causing effect re-runs
-    const availableTagsRef = useRef<TagItem[]>(availableTags);
-    useEffect(() => {
-        availableTagsRef.current = availableTags;
-    }, [availableTags]);
-
-    // Sync with Firestore for real-time views
+    // Fetch latest project details (views/description/tags) and record a view, once on open
     useEffect(() => {
         if (!project.id) return;
 
-        const projectRef = doc(db, 'Projects', String(project.id));
+        fetch(`/api/projects/${project.id}`)
+            .then(res => res.json())
+            .then(body => {
+                const data = body.data as {
+                    viewsProject: number;
+                    viewsGithub: number;
+                    viewsLive: number;
+                    viewsDownload: number;
+                    description: string | null;
+                    downloadLink: string | null;
+                    tags: { tag: { name: string; color: string; iconUrl: string | null } }[];
+                } | null;
+                if (!data) return;
 
-        const resolveTag = (t: string | { name?: string; Name?: string; color?: string; Color?: string; iconSvg?: string; Icon?: string } | null | undefined) => {
-            if (!t) return { name: 'Unknown', color: '#60a5fa', iconSvg: '' };
-            const name = typeof t === 'string' ? t : (t.name || t.Name || 'Unix');
-            // Use ref to get latest tags without causing re-subscription
-            const globalTag = availableTagsRef.current.find(gt => gt.name.toLowerCase() === name.toLowerCase());
+                const tags = data.tags.map(({ tag }) => ({
+                    name: tag.name,
+                    color: tag.color,
+                    iconSvg: tag.iconUrl || getStackIcon(tag.name) || ''
+                }));
 
-            return {
-                name,
-                color: (t && typeof t === 'object' && ('color' in t || 'Color' in t)) ? (t as { color?: string; Color?: string }).color || (t as { color?: string; Color?: string }).Color || (globalTag?.color || getTechColor(name)) : (globalTag?.color || getTechColor(name)),
-                iconSvg: (t && typeof t === 'object' && ('iconSvg' in t || 'Icon' in t)) ? (t as { iconSvg?: string; Icon?: string }).iconSvg || (t as { iconSvg?: string; Icon?: string }).Icon || (globalTag?.iconSvg || getStackIcon(name) || '') : (globalTag?.iconSvg || getStackIcon(name) || '')
-            };
-        };
+                setProject(prev => ({
+                    ...prev,
+                    views: data.viewsProject,
+                    githubViews: data.viewsGithub,
+                    liveViews: data.viewsLive,
+                    downloadViews: data.viewsDownload,
+                    stack: tags.map(t => t.name),
+                    tags,
+                    downloadLink: data.downloadLink || '',
+                    description: data.description || prev.description
+                }));
+            })
+            .catch(err => console.warn('Failed to refresh project details:', err));
 
-        // Subscribe to real-time updates for views AND project details
-        const unsub = onSnapshot(projectRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data() as {
-                    Views?: Record<string, string | number>;
-                    Stack?: string[] | Record<string, unknown>;
-                    Tags?: Record<string, string | { Name?: string; Color?: string; Icon?: string }>;
-                    Description?: string;
-                    'Download Link'?: string;
-                };
-
-                // Also update contributors if they've changed in the background
-                setProject(prev => {
-                    const statusV = data.Views || {};
-                    const rawStack = data.Stack || [];
-                    const normalizedStack = (Array.isArray(rawStack) ? rawStack : Object.values(rawStack))
-                        .map(t => resolveTag(t as string | { name?: string; Name?: string; color?: string; Color?: string; iconSvg?: string; Icon?: string }))
-                        .filter(t => t.name !== 'Unix');
-
-                    const rawTags = data.Tags ? Object.values(data.Tags) : [];
-                    const normalizedTags = rawTags
-                        .map(t => resolveTag(t as string | { name?: string; Name?: string; color?: string; Color?: string; iconSvg?: string; Icon?: string }))
-                        .filter(t => t.name !== 'Unix');
-
-                    const updated = {
-                        ...prev,
-                        views: Number(statusV.Project || 0) || 0,
-                        githubViews: Number(statusV.Github || 0) || 0,
-                        liveViews: Number(statusV.Live || 0) || 0,
-                        downloadViews: Number(statusV.Download || 0) || 0,
-                        stack: normalizedStack.map(t => t.name),
-                        tags: normalizedStack.length > 0 ? normalizedStack : normalizedTags,
-                        downloadLink: data['Download Link'] || ''
-                    };
-
-                    // If we have contributor data in the snapshot, keep the core details synced
-                    if (data.Description) updated.description = data.Description;
-                    return updated;
-                });
-            }
-        });
-
-        // Atomically increment project views on mount
-        updateDoc(projectRef, { "Views.Project": increment(1) }).catch(err =>
-            console.warn("Could not increment views:", err)
-        );
-
-        return () => unsub();
-    }, [project.id, project.name, project.title]);
+        fetch(`/api/projects/${project.id}/view`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field: 'project' })
+        }).catch(err => console.warn('Could not increment views:', err));
+    }, [project.id]);
 
 
     useEffect(() => {

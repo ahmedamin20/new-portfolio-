@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Save, Code, HardDrive } from 'lucide-react';
-import MFirebaseStorage from './M-FirebaseStorage';
-import firebaseIcon from '../../assets/svgs/firebase.svg';
 
 export interface StackItemData {
     id?: string;
@@ -22,7 +20,6 @@ const MStackItem = ({ isOpen, onClose, onSave, initialData }: MStackItemProps) =
     const [name, setName] = useState('');
     const [icon, setIcon] = useState('');
     const [iconFile, setIconFile] = useState<File | null>(null);
-    const [firebaseBrowserOpen, setFirebaseBrowserOpen] = useState(false);
     const iconInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -92,7 +89,7 @@ const MStackItem = ({ isOpen, onClose, onSave, initialData }: MStackItemProps) =
                                 </div>
 
                                 {/* Upload Options */}
-                                <div className="flex-1 grid grid-cols-2 sm:grid-cols-1 gap-3 content-center">
+                                <div className="flex-1 grid grid-cols-1 gap-3 content-center">
                                     {/* Local Upload */}
                                     <div
                                         onClick={() => iconInputRef.current?.click()}
@@ -103,17 +100,6 @@ const MStackItem = ({ isOpen, onClose, onSave, initialData }: MStackItemProps) =
                                         </div>
                                         <span className="text-xs text-sec font-medium">Upload Local File</span>
                                         <input ref={iconInputRef} type="file" accept=".svg,image/svg+xml" onChange={handleIconUpload} style={{ display: 'none' }} />
-                                    </div>
-
-                                    {/* Firebase Selection */}
-                                    <div
-                                        onClick={() => setFirebaseBrowserOpen(true)}
-                                        className="p-3 rounded-lg border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 cursor-pointer flex items-center justify-center sm:justify-start gap-3 transition-colors"
-                                    >
-                                        <div className="p-1.5 rounded-md bg-orange-500/10">
-                                            <img src={firebaseIcon} alt="Firebase" className="w-4 h-4" />
-                                        </div>
-                                        <span className="text-xs text-orange-500 font-medium">Select from Firebase</span>
                                     </div>
                                 </div>
                             </div>
@@ -133,18 +119,6 @@ const MStackItem = ({ isOpen, onClose, onSave, initialData }: MStackItemProps) =
                     </div>
                 </div>
             </div>
-
-            <MFirebaseStorage
-                isOpen={firebaseBrowserOpen}
-                onClose={() => setFirebaseBrowserOpen(false)}
-                onSelect={(url) => {
-                    setIcon(url);
-                    setIconFile(null);
-                    setFirebaseBrowserOpen(false);
-                }}
-                fileTypes={['svg']}
-                title="Select Stack Icon"
-            />
         </>,
         document.body
     );

@@ -2,8 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Upload, Github, Linkedin, Facebook, Instagram, Globe, ZoomIn, HardDrive } from 'lucide-react';
 import Cropper from 'react-easy-crop';
-import MFirebaseStorage from './M-FirebaseStorage';
-import firebaseIcon from '../../assets/svgs/firebase.svg';
 
 import { ContributorData } from '../../types';
 
@@ -92,7 +90,6 @@ const MContributorForm = ({ isOpen, onClose, onSave, initialData }: MContributor
     const [croppedAreaPixels, setCroppedAreaPixels] = useState<CropArea | null>(null);
     const [isCropping, setIsCropping] = useState(false);
     const [originalImageSrc, setOriginalImageSrc] = useState<string | null>(null);
-    const [firebaseBrowserOpen, setFirebaseBrowserOpen] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -236,9 +233,6 @@ const MContributorForm = ({ isOpen, onClose, onSave, initialData }: MContributor
                                     <HardDrive size={16} className="mr-2" /> Local
                                 </button>
                                 <input id="local-up" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-                                <button type="button" onClick={() => setFirebaseBrowserOpen(true)} className="btn btn-secondary py-2 text-sm border-orange-500/30 text-orange-500">
-                                    <img src={firebaseIcon} alt="Firebase" className="w-4 h-4 mr-2" /> Firebase
-                                </button>
                             </div>
                         </div>
 
@@ -262,14 +256,6 @@ const MContributorForm = ({ isOpen, onClose, onSave, initialData }: MContributor
                     </form>
                 )}
             </div>
-
-            <MFirebaseStorage
-                isOpen={firebaseBrowserOpen}
-                onClose={() => setFirebaseBrowserOpen(false)}
-                onSelect={(url) => { setOriginalImageSrc(url); setIsCropping(true); }}
-                fileTypes={['png', 'jpg', 'jpeg', 'webp']}
-                title="Select Profile Image"
-            />
         </div>,
         document.body
     );

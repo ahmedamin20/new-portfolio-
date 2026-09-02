@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  description   String?
+  liveLink      String?
+  repoLink      String?
+  downloadLink  String?
+  iconUrl       String?
+  viewsProject  Int      @default(0)
+  viewsGithub   Int      @default(0)
+  viewsLive     Int      @default(0)
+  viewsDownload Int      @default(0)
+  listing       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tags          ProjectTag[]
+  contributors  ProjectContributor[]
+  images        ProjectImage[]
+}
+
+model ProjectImage {
+  id        Int     @id @default(autoincrement())
+  projectId Int
+  url       String
+  sortOrder Int     @default(0)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Tag {
+  id       Int          @id @default(autoincrement())
+  name     String       @unique
+  color    String
+  iconUrl  String?
+  projects ProjectTag[]
+}
+
+model ProjectTag {
+  projectId Int
+  tagId     Int
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, tagId])
+}
+
+model Contributor {
+  id        Int      @id @default(autoincrement())
+  name      String
+  role      String?
+  imageUrl  String?
+  github    String?
+  linkedin  String?
+  facebook  String?
+  instagram String?
+  portfolio String?
+  projects  ProjectContributor[]
+}
+
+model ProjectContributor {
+  projectId     Int
+  contributorId Int
+  roleAtProject String?
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contributor   Contributor @relation(fields: [contributorId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, contributorId])
+}
+
+model TechStackItem {
+  id        Int    @id @default(autoincrement())
+  name      String
+  iconUrl   String
+  sortOrder Int    @default(0)
+}
+
+model HandlingProject {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+  status      String
+}
+
+model SocialLink {
+  id       Int    @id @default(autoincrement())
+  platform String
+  url      String
+}
+
+model EducationEntry {
+  id          Int    @id @default(autoincrement())
+  degree      String
+  institution String
+  period      String?
+  sortOrder   Int    @default(0)
+}
+
+model ImpactEntry {
+  id        Int    @id @default(autoincrement())
+  text      String
+  sortOrder Int    @default(0)
+}
+
+model LanguageEntry {
+  id        Int    @id @default(autoincrement())
+  name      String
+  level     String
+  sortOrder Int    @default(0)
+}
+
+model SettingsAccount {
+  id           Int     @id @default(1)
+  name         String?
+  title        String?
+  heroImageUrl String?
+  imageUrl     String?
+  bio          String?
+  email        String?
+  phone        String?
+  location     String?
+}
+
+model SettingsAvailability {
+  id                  Int   @id @default(1)
+  availabilityPercent Int   @default(0)
+  timezoneOffset      Float @default(0)
+}

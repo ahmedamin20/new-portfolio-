@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import anime from 'animejs';
-import { Plus, Trash2, Edit2, X, Save, Upload, User, Sliders, Code, Briefcase, Clock, ChevronDown, HardDrive, ZoomIn, Check, Link } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Save, Upload, User, Sliders, Code, Briefcase, Clock, ChevronDown, ZoomIn, Check, Link, GraduationCap, TrendingUp, Languages } from 'lucide-react';
 const DEFAULT_HERO_URL = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80";
 import Cropper from 'react-easy-crop';
-import MFirebaseStorage from './M-FirebaseStorage';
-import { doc, onSnapshot, setDoc, updateDoc, deleteField, getDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, getMetadata } from 'firebase/storage';
-import { db, storage } from '../../lib/firebase';
+import { uploadToCloudinary } from '../../lib/cloudinary';
+import { apiFetch } from '../../lib/apiFetch';
 import Alert, { AlertType } from '../Alert';
 import MHandlingProject, { HandlingProject } from './M-HandlingProject';
 import MStackItem, { StackItemData } from './M-StackItem';
@@ -136,8 +134,6 @@ export default function DSettings() {
     const [stackItems, setStackItems] = useState<StackItem[]>([]);
     const [stackModalOpen, setStackModalOpen] = useState(false);
     const [editingStack, setEditingStack] = useState<StackItem | null>(null);
-    const [firebaseBrowserOpen, setFirebaseBrowserOpen] = useState(false);
-    const [firebaseSelectTarget, setFirebaseSelectTarget] = useState<'hero' | 'profile' | null>(null);
 
     // Confirmation Modal State
     const [confirmConfig, setConfirmConfig] = useState<{
@@ -164,13 +160,30 @@ export default function DSettings() {
     // Profile info state (editable)
     const [profileName, setProfileName] = useState<string>('Your Name');
     const [profileTitle, setProfileTitle] = useState<string>('Job Title');
+    const [profileBio, setProfileBio] = useState<string>('');
+    const [profileEmail, setProfileEmail] = useState<string>('');
+    const [profilePhone, setProfilePhone] = useState<string>('');
+    const [profileLocation, setProfileLocation] = useState<string>('');
     const [socialLinks, setSocialLinks] = useState<{ name: string; url: string }[]>([]);
     const [newLinkName, setNewLinkName] = useState('');
     const [newLinkUrl, setNewLinkUrl] = useState('');
     const [isEditingProfile, setIsEditingProfile] = useState(false);
 
+    // Digital CV: Education / Impact / Languages
+    const [educationList, setEducationList] = useState<{ degree: string; institution: string; period: string }[]>([]);
+    const [newEduDegree, setNewEduDegree] = useState('');
+    const [newEduInstitution, setNewEduInstitution] = useState('');
+    const [newEduPeriod, setNewEduPeriod] = useState('');
+
+    const [impactList, setImpactList] = useState<{ text: string }[]>([]);
+    const [newImpactText, setNewImpactText] = useState('');
+
+    const [languagesList, setLanguagesList] = useState<{ name: string; level: string }[]>([]);
+    const [newLangName, setNewLangName] = useState('');
+    const [newLangLevel, setNewLangLevel] = useState('');
+
     // For immediate revert on Cancel
-    const [profileBackup, setProfileBackup] = useState<{ name: string; title: string } | null>(null);
+    const [profileBackup, setProfileBackup] = useState<{ name: string; title: string; bio: string; email: string; phone: string; location: string } | null>(null);
 
     // Profile image resolution & size display (same behavior as hero)
     const [profileImageResolution, setProfileImageResolution] = useState<string>('');
@@ -333,28 +346,14 @@ export default function DSettings() {
                     const bytes = sizeFromDataUrl(heroImagePreview);
                     setHeroImageSize(formatBytes(bytes));
                 } else if (heroImagePreview.startsWith('http')) {
-                    // try to get metadata which is safer than fetch() for CORS
                     try {
-                        // Only try getMetadata if it looks like a Firebase URL
-                        if (heroImagePreview.includes('firebasestorage.googleapis.com')) {
-                            const fileRef = ref(storage, heroImagePreview);
-                            const metadata = await getMetadata(fileRef);
-                            setHeroImageSize(formatBytes(metadata.size));
-                        } else {
-                            // Fallback to fetch for non-firebase URLs
-                            throw new Error('Not a firebase URL');
+                        const res = await fetch(heroImagePreview, { method: 'GET' });
+                        if (res.ok) {
+                            const blob = await res.blob();
+                            setHeroImageSize(formatBytes(blob.size));
                         }
                     } catch {
-                        // Only try fetch if getMetadata failed and it's not a local file
-                        try {
-                            const res = await fetch(heroImagePreview, { method: 'GET' });
-                            if (res.ok) {
-                                const blob = await res.blob();
-                                setHeroImageSize(formatBytes(blob.size));
-                            }
-                        } catch {
-                            setHeroImageSize('');
-                        }
+                        setHeroImageSize('');
                     }
                 } else {
                     setHeroImageSize('');
@@ -399,27 +398,14 @@ export default function DSettings() {
                     const bytes = sizeFromDataUrl(profileImagePreview);
                     setProfileImageSize(formatBytes(bytes));
                 } else if (profileImagePreview.startsWith('http')) {
-                    // try to get metadata which is safer than fetch() for CORS
                     try {
-                        // Only try getMetadata if it looks like a Firebase URL
-                        if (profileImagePreview.includes('firebasestorage.googleapis.com')) {
-                            const fileRef = ref(storage, profileImagePreview);
-                            const metadata = await getMetadata(fileRef);
-                            setProfileImageSize(formatBytes(metadata.size));
-                        } else {
-                            // Fallback to fetch for non-firebase URLs
-                            throw new Error('Not a firebase URL');
+                        const res = await fetch(profileImagePreview, { method: 'GET' });
+                        if (res.ok) {
+                            const blob = await res.blob();
+                            setProfileImageSize(formatBytes(blob.size));
                         }
                     } catch {
-                        try {
-                            const res = await fetch(profileImagePreview, { method: 'GET' });
-                            if (res.ok) {
-                                const blob = await res.blob();
-                                setProfileImageSize(formatBytes(blob.size));
-                            }
-                        } catch {
-                            setProfileImageSize('');
-                        }
+                        setProfileImageSize('');
                     }
                 } else {
                     setProfileImageSize('');
@@ -435,27 +421,41 @@ export default function DSettings() {
         };
     }, [profileImagePreview, profileImageFile]);
 
-    // Load profile and hero info from Firestore
+    // Load profile and hero info from the API
     useEffect(() => {
-        const unsubscribe = onSnapshot(doc(db, 'Settings', 'Account'), (snap) => {
-            if (snap.exists()) {
-                const data = snap.data();
+        const loadAccount = async () => {
+            try {
+                const res = await fetch('/api/settings/account');
+                const body = await res.json();
+                const data = body.data;
+                if (!data) return;
                 if (data.imageUrl && !profileImageDirty) setProfileImagePreview(data.imageUrl);
                 if (data.heroImageUrl && !heroImageFile) setHeroImagePreview(data.heroImageUrl);
                 if (data.name && !isEditingProfile && !profileInfoDirty) setProfileName(data.name);
                 if (data.title && !isEditingProfile && !profileInfoDirty) setProfileTitle(data.title);
-                if (data['Social Links'] && !isEditingProfile && !profileInfoDirty) {
-                    const links = Object.entries(data['Social Links']).map(([name, url]) => ({
-                        name,
-                        url: url as string
-                    }));
-                    setSocialLinks(links);
+                if (!isEditingProfile && !profileInfoDirty) {
+                    setProfileBio(data.bio || '');
+                    setProfileEmail(data.email || '');
+                    setProfilePhone(data.phone || '');
+                    setProfileLocation(data.location || '');
                 }
+                if (data.socialLinks && !isEditingProfile && !profileInfoDirty) {
+                    setSocialLinks(data.socialLinks.map((l: { platform: string; url: string }) => ({ name: l.platform, url: l.url })));
+                }
+                if (data.education && !isEditingProfile && !profileInfoDirty) {
+                    setEducationList(data.education.map((e: { degree: string; institution: string; period: string | null }) => ({ degree: e.degree, institution: e.institution, period: e.period || '' })));
+                }
+                if (data.impact && !isEditingProfile && !profileInfoDirty) {
+                    setImpactList(data.impact.map((e: { text: string }) => ({ text: e.text })));
+                }
+                if (data.languages && !isEditingProfile && !profileInfoDirty) {
+                    setLanguagesList(data.languages.map((e: { name: string; level: string }) => ({ name: e.name, level: e.level })));
+                }
+            } catch (err) {
+                console.error('Error fetching account settings', err);
             }
-        }, (err) => {
-            console.error('Error fetching account settings', err);
-        });
-        return () => unsubscribe();
+        };
+        loadAccount();
     }, [profileImageDirty, isEditingProfile, profileInfoDirty, heroImageFile]);
 
     // Cropper State
@@ -514,32 +514,17 @@ export default function DSettings() {
 
     const handleSaveAvailability = async () => {
         try {
-            const projectsMap = handlingProjects.reduce((acc, project) => {
-                const { id, ...projectData } = project;
-                acc[id] = projectData;
-                return acc;
-            }, {} as { [key: string]: Omit<HandlingProject, 'id'> });
+            const handlingProjectsPayload = handlingProjects.map(({ name, description, status }) => ({ name, description, status }));
 
-            const selectedTz = timezones.find(tz => tz.value === selectedTimezone);
-
-            // Calculate timezone offset string correctly (handling .5 offsets)
-            const absOffset = Math.abs(selectedTimezone);
-            const hours = Math.floor(absOffset);
-            const minutes = Math.round((absOffset % 1) * 60);
-            const fallbackTzStr = `UTC${selectedTimezone >= 0 ? '+' : '-'}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-
-            const payload = {
-                'Current Availability': `${availability}%`,
-                'Current Time': selectedTz ? selectedTz.label : fallbackTzStr,
-                'Projects Being Handled': projectsMap,
-                // Add raw values for easier parsing and consistency
-                'availabilityPercent': availability,
-                'timezoneOffset': selectedTimezone
-            };
-
-            // Use setDoc WITHOUT merge: true to ensure the 'Projects Being Handled' map is fully replaced
-            // This ensures that deleted projects are actually removed from Firestore
-            await setDoc(doc(db, 'Settings', 'Availability'), payload);
+            await apiFetch('/api/settings/availability', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    availabilityPercent: availability,
+                    timezoneOffset: selectedTimezone,
+                    handlingProjects: handlingProjectsPayload
+                })
+            });
         } catch (error) {
             console.error("Error saving availability:", error);
             safeSetAlert({ show: true, type: 'error', message: 'Failed to save availability settings' });
@@ -553,16 +538,20 @@ export default function DSettings() {
             setIsLoading(true);
 
             if (heroImageFile) {
-                const fileExtension = heroImageFile.name.split('.').pop();
-                const fileName = `Hero.image.${fileExtension}`;
-                const storageRef = ref(storage, `src/imgs/Settings/${fileName}`);
-                await uploadBytes(storageRef, heroImageFile);
-                const downloadURL = await getDownloadURL(storageRef);
+                const downloadURL = await uploadToCloudinary(heroImageFile, 'settings');
 
-                await setDoc(doc(db, 'Settings', 'Account'), { heroImageUrl: downloadURL }, { merge: true });
+                await apiFetch('/api/settings/account', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ heroImageUrl: downloadURL })
+                });
             } else if (heroImagePreview && heroImagePreview.startsWith('http')) {
                 // Selected from Firebase / remote URL - just persist the URL
-                await setDoc(doc(db, 'Settings', 'Account'), { heroImageUrl: heroImagePreview }, { merge: true });
+                await apiFetch('/api/settings/account', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ heroImageUrl: heroImagePreview })
+                });
             } else {
                 // Local data URL without a file - nothing to upload to storage
                 return;
@@ -612,48 +601,44 @@ export default function DSettings() {
 
         setIsLoading(true);
         try {
-            const profileSnap = await getDoc(doc(db, 'Settings', 'Account'));
-            if (profileSnap.exists()) {
-                const data = profileSnap.data();
+            const accountRes = await fetch('/api/settings/account');
+            const accountBody = await accountRes.json();
+            const data = accountBody.data;
+            if (data) {
                 setProfileName(data.name ?? 'Your Name');
                 setProfileTitle(data.title ?? 'Job Title');
+                setProfileBio(data.bio ?? '');
+                setProfileEmail(data.email ?? '');
+                setProfilePhone(data.phone ?? '');
+                setProfileLocation(data.location ?? '');
+                setEducationList((data.education ?? []).map((e: { degree: string; institution: string; period: string | null }) => ({ degree: e.degree, institution: e.institution, period: e.period || '' })));
+                setImpactList((data.impact ?? []).map((e: { text: string }) => ({ text: e.text })));
+                setLanguagesList((data.languages ?? []).map((e: { name: string; level: string }) => ({ name: e.name, level: e.level })));
                 setProfileImagePreview(data.imageUrl ?? '');
                 setProfileImageFile(null);
                 setProfileImageBackupPreview(null);
                 setProfileImageBackupFile(null);
                 setProfileImageDirty(false);
                 setProfileInfoDirty(false);
-            }
-
-            const heroSnap = await getDoc(doc(db, 'Settings', 'Account'));
-            if (heroSnap.exists()) {
-                const heroData = heroSnap.data();
-                setHeroImagePreview(heroData.heroImageUrl ?? DEFAULT_HERO_URL);
+                setHeroImagePreview(data.heroImageUrl ?? DEFAULT_HERO_URL);
                 setHeroImageFile(null);
             }
 
-            const availSnap = await getDoc(doc(db, 'Settings', 'Availability'));
-            if (availSnap.exists()) {
-                const availData = availSnap.data();
-                if (availData.availabilityPercent !== undefined) {
-                    setAvailability(availData.availabilityPercent);
-                } else if (availData['Current Availability']) {
-                    const percentage = parseInt(availData['Current Availability'].replace('%', ''));
-                    if (!isNaN(percentage)) setAvailability(percentage);
-                }
-
-                if (availData.timezoneOffset !== undefined) {
-                    setSelectedTimezone(availData.timezoneOffset);
-                }
-
-                const projectsMap = availData['Projects Being Handled'] as { [key: string]: Omit<HandlingProject, 'id'> };
-                if (projectsMap) {
-                    const projectsArray: HandlingProject[] = Object.entries(projectsMap).map(([id, projectData]) => ({
-                        id,
-                        ...projectData
-                    }));
-                    setHandlingProjects(projectsArray);
-                }
+            const availRes = await fetch('/api/settings/availability');
+            const availBody = await availRes.json();
+            const availData = availBody.data;
+            if (availData) {
+                setAvailability(availData.availabilityPercent ?? 0);
+                setSelectedTimezone(availData.timezoneOffset ?? 0);
+                const projectsArray: HandlingProject[] = (availData.handlingProjects ?? []).map(
+                    (p: { id: number; name: string; description: string | null; status: string }) => ({
+                        id: p.id.toString(),
+                        name: p.name,
+                        description: p.description ?? '',
+                        status: p.status as 'active' | 'pending' | 'completed'
+                    })
+                );
+                setHandlingProjects(projectsArray);
             }
 
             setHasUnsavedChanges(false);
@@ -694,79 +679,52 @@ export default function DSettings() {
         return () => clearInterval(interval);
     }, [selectedTimezone]);
 
+    const loadAvailability = async () => {
+        try {
+            const res = await fetch('/api/settings/availability');
+            const body = await res.json();
+            const data = body.data;
+            if (!data) return;
+
+            setAvailability(data.availabilityPercent ?? 0);
+            setSelectedTimezone(data.timezoneOffset ?? 0);
+
+            const projectsArray: HandlingProject[] = (data.handlingProjects ?? []).map(
+                (p: { id: number; name: string; description: string | null; status: string }) => ({
+                    id: p.id.toString(),
+                    name: p.name,
+                    description: p.description ?? '',
+                    status: p.status as 'active' | 'pending' | 'completed'
+                })
+            );
+            setHandlingProjects(projectsArray);
+        } catch (err) {
+            console.warn('Failed to load availability settings', err);
+        }
+    };
+
     useEffect(() => {
-        const unsubscribe = onSnapshot(doc(db, 'Settings', 'Availability'), (docSnapshot) => {
-            if (docSnapshot.exists()) {
-                const data = docSnapshot.data();
-
-                // Parse and set availability
-                if (data.availabilityPercent !== undefined) {
-                    setAvailability(data.availabilityPercent);
-                } else {
-                    const availabilityString = data['Current Availability'] as string;
-                    if (availabilityString) {
-                        const percentage = parseInt(availabilityString.replace('%', ''));
-                        if (!isNaN(percentage)) {
-                            setAvailability(percentage);
-                        }
-                    }
-                }
-
-                // Parse and set timezone
-                if (data.timezoneOffset !== undefined) {
-                    setSelectedTimezone(data.timezoneOffset);
-                } else {
-                    const timezoneString = data['Current Time'] as string;
-                    if (timezoneString) {
-                        const offsetMatch = timezoneString.match(/UTC([+-]\d{2}):\d{2}/);
-                        if (offsetMatch && offsetMatch[1]) {
-                            setSelectedTimezone(parseInt(offsetMatch[1]));
-                        }
-                    }
-                }
-
-                // Parse and set handling projects
-                const projectsMap = data['Projects Being Handled'] as { [key: string]: Omit<HandlingProject, 'id'> };
-                if (projectsMap) {
-                    const projectsArray: HandlingProject[] = Object.entries(projectsMap).map(([id, projectData]) => ({
-                        id,
-                        ...projectData
-                    }));
-                    setHandlingProjects(projectsArray);
-                } else {
-                    setHandlingProjects([]);
-                }
-            }
-        }, (err) => {
-            const status = navigator.onLine ? "Service Blocked (ISP/Firewall)" : "Offline";
-            console.warn(`[Connection] Settings sync: ${status}. Check diagnostic in lib/firebase.ts`, err);
-        });
-        return () => unsubscribe();
+        loadAvailability();
     }, []);
 
     // Fetch Stack Data
+    const loadStack = async () => {
+        try {
+            const res = await fetch('/api/tech-stack');
+            const body = await res.json();
+            const items: StackItem[] = (body.data as { id: number; name: string; iconUrl: string }[]).map(i => ({
+                id: i.id.toString(),
+                name: i.name,
+                icon: i.iconUrl
+            }));
+            setStackItems(items);
+        } catch (err) {
+            console.warn('Failed to load tech stack', err);
+        }
+    };
+
     useEffect(() => {
-        const unsubscribe = onSnapshot(doc(db, 'Settings', 'Tech Stack'), (docSnapshot) => {
-            if (docSnapshot.exists()) {
-                const data = docSnapshot.data();
-                const items: StackItem[] = [];
-                Object.entries(data).forEach(([key, value]: [string, unknown]) => {
-                    const v = value as Record<string, unknown>;
-                    items.push({
-                        id: key,
-                        name: typeof v.Name === 'string' ? v.Name : (v.name as string) || 'Untitled',
-                        icon: typeof v.Icon === 'string' ? v.Icon : (v.icon as string) || ''
-                    });
-                });
-                // Sort by ID (assuming numeric IDs)
-                items.sort((a, b) => parseInt(a.id) - parseInt(b.id));
-                setStackItems(items);
-            }
-        }, (err) => {
-            const status = navigator.onLine ? "Service Blocked (ISP/Firewall)" : "Offline";
-            console.warn(`[Connection] Tech Stack sync: ${status}. Check diagnostic in lib/firebase.ts`, err);
-        });
-        return () => unsubscribe();
+        loadStack();
     }, []);
 
     const getAvailabilityColor = (value: number) => {
@@ -813,26 +771,27 @@ export default function DSettings() {
         setIsLoading(true);
 
         try {
-            let id = data.id || '';
-            if (!id) {
-                const ids = stackItems.map(i => parseInt(i.id)).filter(n => !isNaN(n));
-                const nextId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
-                id = nextId.toString();
-            }
-
             let iconUrl = data.icon;
             if (data.iconFile) {
-                const storageRef = ref(storage, `src/svgs/${data.iconFile.name}`);
-                await uploadBytes(storageRef, data.iconFile);
-                iconUrl = await getDownloadURL(storageRef);
+                iconUrl = await uploadToCloudinary(data.iconFile, 'settings/stack');
             }
 
-            const payload = {
-                Name: data.name,
-                Icon: iconUrl
-            };
+            const payload = { name: data.name, iconUrl };
 
-            await setDoc(doc(db, 'Settings', 'Tech Stack'), { [id]: payload }, { merge: true });
+            if (data.id) {
+                await apiFetch(`/api/tech-stack/${data.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                await apiFetch('/api/tech-stack', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            }
+            await loadStack();
 
             setStackModalOpen(false);
             setEditingStack(null);
@@ -855,7 +814,8 @@ export default function DSettings() {
             onConfirm: async () => {
                 setIsLoading(true);
                 try {
-                    await updateDoc(doc(db, 'Settings', 'Tech Stack'), { [id]: deleteField() });
+                    await apiFetch(`/api/tech-stack/${id}`, { method: 'DELETE' });
+                    await loadStack();
                     safeSetAlert({ show: true, type: 'success', message: 'Stack item deleted', duration: 3000 });
                 } catch (error) {
                     console.error("Error deleting stack:", error);
@@ -971,16 +931,22 @@ export default function DSettings() {
     // Persist profile name/title/links to Firestore (used by Apply All)
     const handleSaveProfileInfo = async (silent = false) => {
         try {
-            const linksMap = socialLinks.reduce((acc, link) => {
-                acc[link.name] = link.url;
-                return acc;
-            }, {} as Record<string, string>);
-
-            await setDoc(doc(db, 'Settings', 'Account'), {
-                name: profileName,
-                title: profileTitle,
-                'Social Links': linksMap
-            }, { merge: true });
+            await apiFetch('/api/settings/account', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: profileName,
+                    title: profileTitle,
+                    bio: profileBio,
+                    email: profileEmail,
+                    phone: profilePhone,
+                    location: profileLocation,
+                    socialLinks: socialLinks.map(l => ({ platform: l.name, url: l.url })),
+                    education: educationList,
+                    impact: impactList,
+                    languages: languagesList
+                })
+            });
 
             if (!silent) safeSetAlert({ show: true, type: 'success', message: 'Profile updated!', duration: 3000 });
         } catch (err) {
@@ -997,14 +963,20 @@ export default function DSettings() {
             setIsLoading(true);
 
             if (profileImageFile) {
-                const storageRef = ref(storage, `src/imgs/Settings/Profile_${Date.now()}_cropped.jpg`);
-                await uploadBytes(storageRef, profileImageFile);
-                const downloadURL = await getDownloadURL(storageRef);
+                const downloadURL = await uploadToCloudinary(profileImageFile, 'settings');
 
-                await setDoc(doc(db, 'Settings', 'Account'), { imageUrl: downloadURL }, { merge: true });
+                await apiFetch('/api/settings/account', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imageUrl: downloadURL })
+                });
             } else if (profileImagePreview && profileImagePreview.startsWith('http')) {
                 // Selected from Firebase / remote URL - just persist the URL
-                await setDoc(doc(db, 'Settings', 'Account'), { imageUrl: profileImagePreview }, { merge: true });
+                await apiFetch('/api/settings/account', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imageUrl: profileImagePreview })
+                });
             } else {
                 // Local data URL without a file - nothing to upload to storage
                 return;
@@ -1405,14 +1377,6 @@ export default function DSettings() {
                                         <span className="hidden sm:inline text-blue-400 tracking-wide font-semibold">Upload</span>
                                     </button>
 
-                                    <button
-                                        onClick={() => { setFirebaseSelectTarget('hero'); setFirebaseBrowserOpen(true); }}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-orange-400/10 border border-orange-400/20 text-orange-400 font-semibold hover:bg-orange-400/20 transition"
-                                    >
-                                        < HardDrive size={16} className="text-orange-400" />
-                                        <span className="text-orange-400">Browse</span>
-                                    </button>
-
                                     <input ref={heroImageInputRef} type="file" accept="image/*" onChange={handleHeroImageUpload} style={{ display: 'none' }} />
                                 </div>
                             </div>
@@ -1452,14 +1416,6 @@ export default function DSettings() {
                                             >
                                                 <Upload size={16} />
                                             </button>
-
-                                            <button
-                                                aria-label="Browse profile image"
-                                                onClick={() => { setFirebaseSelectTarget('profile'); setFirebaseBrowserOpen(true); }}
-                                                className="w-10 h-10 rounded-full bg-orange-400/10 border border-orange-400/20 text-orange-400 flex items-center justify-center hover:bg-orange-400/20 transition"
-                                            >
-                                                <HardDrive size={16} />
-                                            </button>
                                         </div>
                                     </div>
 
@@ -1470,6 +1426,16 @@ export default function DSettings() {
                                                     <>
                                                         <div className="font-bold">{profileName}</div>
                                                         <div className="text-sec text-sm opacity-70">{profileTitle}</div>
+                                                        {profileBio && (
+                                                            <p className="text-muted text-xs mt-2 leading-relaxed">{profileBio}</p>
+                                                        )}
+                                                        {(profileEmail || profilePhone || profileLocation) && (
+                                                            <div className="flex flex-col gap-0.5 mt-2 text-xs text-muted">
+                                                                {profileEmail && <span>{profileEmail}</span>}
+                                                                {profilePhone && <span>{profilePhone}</span>}
+                                                                {profileLocation && <span>{profileLocation}</span>}
+                                                            </div>
+                                                        )}
                                                         {profileImageResolution ? (
                                                             <p className="text-muted text-xs mt-1">
                                                                 Resolution: <span className="font-mono text-xs">{profileImageResolution}</span>
@@ -1480,9 +1446,31 @@ export default function DSettings() {
                                                         <p className="text-muted text-xs mt-2">Profile image is used across the site</p>
                                                     </>
                                                 ) : (
-                                                    <div className="flex flex-col gap-2">
-                                                        <input className="input-field" value={profileName} onChange={(e) => { setProfileName(e.target.value); setHasUnsavedChanges(true); }} placeholder="Full name" />
-                                                        <input className="input-field" value={profileTitle} onChange={(e) => { setProfileTitle(e.target.value); setHasUnsavedChanges(true); }} placeholder="Job title" />
+                                                    <div className="flex flex-col gap-3">
+                                                        <div>
+                                                            <label className="text-xs text-muted mb-1 block">Full Name</label>
+                                                            <input className="input-field w-full" value={profileName} onChange={(e) => { setProfileName(e.target.value); setHasUnsavedChanges(true); }} placeholder="Full name" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs text-muted mb-1 block">Job Title</label>
+                                                            <input className="input-field w-full" value={profileTitle} onChange={(e) => { setProfileTitle(e.target.value); setHasUnsavedChanges(true); }} placeholder="Job title" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs text-muted mb-1 block">Bio / Overview</label>
+                                                            <textarea className="input-field w-full" rows={3} value={profileBio} onChange={(e) => { setProfileBio(e.target.value); setHasUnsavedChanges(true); }} placeholder="Bio / overview" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs text-muted mb-1 block">Email</label>
+                                                            <input className="input-field w-full" value={profileEmail} onChange={(e) => { setProfileEmail(e.target.value); setHasUnsavedChanges(true); }} placeholder="Email" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs text-muted mb-1 block">Phone</label>
+                                                            <input className="input-field w-full" value={profilePhone} onChange={(e) => { setProfilePhone(e.target.value); setHasUnsavedChanges(true); }} placeholder="Phone" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs text-muted mb-1 block">Location</label>
+                                                            <input className="input-field w-full" value={profileLocation} onChange={(e) => { setProfileLocation(e.target.value); setHasUnsavedChanges(true); }} placeholder="Location" />
+                                                        </div>
                                                     </div>
                                                 )}
 
@@ -1490,7 +1478,7 @@ export default function DSettings() {
 
                                             <div className="flex items-center gap-2 self-start sm:self-auto">
                                                 {!isEditingProfile ? (
-                                                    <button onClick={() => { setProfileBackup({ name: profileName, title: profileTitle }); setIsEditingProfile(true); }} className="btn btn-secondary px-3 py-2">
+                                                    <button onClick={() => { setProfileBackup({ name: profileName, title: profileTitle, bio: profileBio, email: profileEmail, phone: profilePhone, location: profileLocation }); setIsEditingProfile(true); }} className="btn btn-secondary px-3 py-2">
                                                         <Edit2 size={16} />
                                                         <span className="hidden sm:inline ml-2">Edit</span>
                                                     </button>
@@ -1509,6 +1497,10 @@ export default function DSettings() {
                                                             if (profileBackup) {
                                                                 setProfileName(profileBackup.name);
                                                                 setProfileTitle(profileBackup.title);
+                                                                setProfileBio(profileBackup.bio);
+                                                                setProfileEmail(profileBackup.email);
+                                                                setProfilePhone(profileBackup.phone);
+                                                                setProfileLocation(profileBackup.location);
                                                                 setProfileBackup(null);
                                                             }
                                                             setIsEditingProfile(false);
@@ -1617,6 +1609,210 @@ export default function DSettings() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Education Editor */}
+                        <div className="settings-panel md:col-span-12 glass-panel p-6 flex flex-col gap-4" style={{ opacity: revealedTabs.account ? 1 : 0 }}>
+                            <h3 className="heading-md text-base sm:text-lg md:text-xl flex items-center mb-2">
+                                <GraduationCap size={22} className="mr-3" />
+                                Academic Background
+                            </h3>
+                            <div className="flex flex-col gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                    <div className="sm:col-span-4">
+                                        <label className="text-xs text-muted mb-1 block">Degree / Program</label>
+                                        <input className="input-field w-full" placeholder="e.g. Systems Information & Comp. Eng." value={newEduDegree} onChange={(e) => setNewEduDegree(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-4">
+                                        <label className="text-xs text-muted mb-1 block">Institution</label>
+                                        <input className="input-field w-full" placeholder="e.g. MISR Engineering & Technology (MET) • First Year" value={newEduInstitution} onChange={(e) => setNewEduInstitution(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <label className="text-xs text-muted mb-1 block">Period</label>
+                                        <input className="input-field w-full" placeholder="e.g. 2025 — 2030" value={newEduPeriod} onChange={(e) => setNewEduPeriod(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <button
+                                            className="btn btn-primary w-full justify-center"
+                                            disabled={!newEduDegree || !newEduInstitution}
+                                            onClick={() => {
+                                                if (newEduDegree && newEduInstitution) {
+                                                    setEducationList([...educationList, { degree: newEduDegree, institution: newEduInstitution, period: newEduPeriod }]);
+                                                    setNewEduDegree('');
+                                                    setNewEduInstitution('');
+                                                    setNewEduPeriod('');
+                                                    setHasUnsavedChanges(true);
+                                                }
+                                            }}
+                                        >
+                                            <Plus size={18} /> <span className="hidden sm:inline">Add</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {educationList.length > 0 ? (
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        {educationList.map((entry, index) => (
+                                            <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
+                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                                                        <GraduationCap size={14} className="text-primary" />
+                                                    </div>
+                                                    <div className="flex flex-col overflow-hidden">
+                                                        <span className="font-bold text-sm truncate">{entry.degree}</span>
+                                                        <span className="text-xs text-muted truncate">{entry.institution}{entry.period ? ` • ${entry.period}` : ''}</span>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                    onClick={() => {
+                                                        const next = [...educationList];
+                                                        next.splice(index, 1);
+                                                        setEducationList(next);
+                                                        setHasUnsavedChanges(true);
+                                                    }}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-6 border border-dashed border-white/10 rounded-xl text-muted text-sm">
+                                        No education entries yet.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Impact Editor */}
+                        <div className="settings-panel md:col-span-12 glass-panel p-6 flex flex-col gap-4" style={{ opacity: revealedTabs.account ? 1 : 0 }}>
+                            <h3 className="heading-md text-base sm:text-lg md:text-xl flex items-center mb-2">
+                                <TrendingUp size={22} className="mr-3" />
+                                Impact
+                            </h3>
+                            <div className="flex flex-col gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                    <div className="sm:col-span-10">
+                                        <label className="text-xs text-muted mb-1 block">Impact Statement</label>
+                                        <input className="input-field w-full" placeholder="e.g. Built 3 major apps in 1st year." value={newImpactText} onChange={(e) => setNewImpactText(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <button
+                                            className="btn btn-primary w-full justify-center"
+                                            disabled={!newImpactText}
+                                            onClick={() => {
+                                                if (newImpactText) {
+                                                    setImpactList([...impactList, { text: newImpactText }]);
+                                                    setNewImpactText('');
+                                                    setHasUnsavedChanges(true);
+                                                }
+                                            }}
+                                        >
+                                            <Plus size={18} /> <span className="hidden sm:inline">Add</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {impactList.length > 0 ? (
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        {impactList.map((entry, index) => (
+                                            <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
+                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                                                        <TrendingUp size={14} className="text-primary" />
+                                                    </div>
+                                                    <span className="text-sm truncate">{entry.text}</span>
+                                                </div>
+                                                <button
+                                                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                    onClick={() => {
+                                                        const next = [...impactList];
+                                                        next.splice(index, 1);
+                                                        setImpactList(next);
+                                                        setHasUnsavedChanges(true);
+                                                    }}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-6 border border-dashed border-white/10 rounded-xl text-muted text-sm">
+                                        No impact statements yet.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Languages Editor */}
+                        <div className="settings-panel md:col-span-12 glass-panel p-6 flex flex-col gap-4" style={{ opacity: revealedTabs.account ? 1 : 0 }}>
+                            <h3 className="heading-md text-base sm:text-lg md:text-xl flex items-center mb-2">
+                                <Languages size={22} className="mr-3" />
+                                Languages
+                            </h3>
+                            <div className="flex flex-col gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                    <div className="sm:col-span-6">
+                                        <label className="text-xs text-muted mb-1 block">Language</label>
+                                        <input className="input-field w-full" placeholder="e.g. English" value={newLangName} onChange={(e) => setNewLangName(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-4">
+                                        <label className="text-xs text-muted mb-1 block">Level</label>
+                                        <input className="input-field w-full" placeholder="e.g. Prof. / Native" value={newLangLevel} onChange={(e) => setNewLangLevel(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <button
+                                            className="btn btn-primary w-full justify-center"
+                                            disabled={!newLangName || !newLangLevel}
+                                            onClick={() => {
+                                                if (newLangName && newLangLevel) {
+                                                    setLanguagesList([...languagesList, { name: newLangName, level: newLangLevel }]);
+                                                    setNewLangName('');
+                                                    setNewLangLevel('');
+                                                    setHasUnsavedChanges(true);
+                                                }
+                                            }}
+                                        >
+                                            <Plus size={18} /> <span className="hidden sm:inline">Add</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {languagesList.length > 0 ? (
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        {languagesList.map((entry, index) => (
+                                            <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
+                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                                                        <Languages size={14} className="text-primary" />
+                                                    </div>
+                                                    <div className="flex flex-col overflow-hidden">
+                                                        <span className="font-bold text-sm truncate">{entry.name}</span>
+                                                        <span className="text-xs text-muted truncate">{entry.level}</span>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                    onClick={() => {
+                                                        const next = [...languagesList];
+                                                        next.splice(index, 1);
+                                                        setLanguagesList(next);
+                                                        setHasUnsavedChanges(true);
+                                                    }}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-6 border border-dashed border-white/10 rounded-xl text-muted text-sm">
+                                        No languages added yet.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
@@ -1674,31 +1870,6 @@ export default function DSettings() {
                     </div>
                 )
             }
-
-            {/* Firebase Browser */}
-            <MFirebaseStorage
-                isOpen={firebaseBrowserOpen}
-                onClose={() => { setFirebaseBrowserOpen(false); setFirebaseSelectTarget(null); }}
-                onSelect={(url) => {
-                    if (firebaseSelectTarget === 'hero') {
-                        setHeroImagePreview(url);
-                        setHeroImageFile(null);
-                        setHasUnsavedChanges(true);
-                    } else if (firebaseSelectTarget === 'profile') {
-                        // Backup current profile if not already backed up
-                        if (!profileImageBackupPreview) {
-                            setProfileImageBackupPreview(profileImagePreview);
-                            setProfileImageBackupFile(profileImageFile);
-                        }
-                        setOriginalImageSrc(url);
-                        setIsCropping(true);
-                    }
-                    setFirebaseSelectTarget(null);
-                    setFirebaseBrowserOpen(false);
-                }}
-                fileTypes={['svg', 'png', 'jpg', 'jpeg', 'webp']}
-                title={firebaseSelectTarget === 'hero' ? 'Select Hero Image' : firebaseSelectTarget === 'profile' ? 'Select Profile Image' : 'Select File'}
-            />
 
             <MConfirmModal
                 isOpen={confirmConfig.isOpen}

@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { sanitizeSvg } from '../../lib/sanitize';
 import { Search, Plus, Tag, Edit2, Trash2, Users, UserPlus } from 'lucide-react';
-import { doc, collection, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, storage } from '../../lib/firebase';
+import { uploadToCloudinary, deleteFromCloudinaryUrl } from '../../lib/cloudinary';
+import { apiFetch } from '../../lib/apiFetch';
 import anime from 'animejs';
 import { TagData, ContributorData, TagFormData } from '../../types';
 import MTagForm from './M-TagForm';
@@ -12,23 +11,23 @@ import { createPortal } from 'react-dom';
 import Loader from '../reactbits/Loader';
 import MConfirmModal from './M-ConfirmModal';
 
-interface RawFirestoreTag {
-    Name?: string;
-    Color?: string;
-    Icon?: string;
+interface ApiTag {
+    id: number;
+    name: string;
+    color: string;
+    iconUrl: string | null;
 }
 
-interface RawFirestoreContributor {
-    Name?: string;
-    Role?: string;
-    Image?: string;
-    'Social Accounts'?: {
-        Github?: string;
-        Linkedin?: string;
-        Facebook?: string;
-        Instagram?: string;
-        Portfolio?: string;
-    };
+interface ApiContributor {
+    id: number;
+    name: string;
+    role: string | null;
+    imageUrl: string | null;
+    github: string | null;
+    linkedin: string | null;
+    facebook: string | null;
+    instagram: string | null;
+    portfolio: string | null;
 }
 
 const DTags = () => {
@@ -100,87 +99,54 @@ const DTags = () => {
         const observer = new MutationObserver(checkTheme);
         observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
-        // Real-time data from central documents
-        const unsubTags = onSnapshot(doc(db, 'Tags', 'Tags'),
-            (snapshot) => {
-                if (snapshot.exists()) {
-                    const data = snapshot.data();
-                    const tagsData = Object.entries(data).map(([id, val]: [string, RawFirestoreTag]) => ({
-                        id,
-                        name: val.Name || 'Untitled',
-                        color: val.Color || '#3b82f6',
-                        iconSvg: val.Icon || ''
-                    }));
-                    // Sort by numeric ID if possible, otherwise by name
-                    tagsData.sort((a, b) => {
-                        const idA = parseInt(a.id);
-                        const idB = parseInt(b.id);
-                        if (!isNaN(idA) && !isNaN(idB)) return idA - idB;
-                        return a.name.localeCompare(b.name);
-                    });
-                    setTags(tagsData);
-                } else {
-                    setTags([]);
-                }
-            },
-            (err) => {
-                const status = navigator.onLine ? "Service Blocked (ISP/Firewall)" : "Offline";
-                console.warn(`[Connection] Tags sync: ${status}. Check diagnostic in lib/firebase.ts`, err);
-            }
-        );
-
-        const unsubContributorsDoc = onSnapshot(doc(db, 'Tags', 'Contributors'), (snapshot) => {
-            if (snapshot.exists()) {
-                const data = snapshot.data();
-                const contribData: ContributorData[] = Object.entries(data)
-                    .filter(([, val]) => val && typeof val === 'object' && (val as RawFirestoreContributor).Name)
-                    .map(([id, val]: [string, RawFirestoreContributor]) => ({
-                        id,
-                        name: val.Name || 'Untitled',
-                        role: val.Role || '',
-                        image: val.Image || '',
-                        socials: {
-                            github: val['Social Accounts']?.Github || '',
-                            linkedin: val['Social Accounts']?.Linkedin || '',
-                            facebook: val['Social Accounts']?.Facebook || '',
-                            instagram: val['Social Accounts']?.Instagram || '',
-                            portfolio: val['Social Accounts']?.Portfolio || ''
-                        }
-                    } as ContributorData));
-                setContributors(prev => [...prev.filter(c => !contribData.some(d => d.id === c.id)), ...contribData]);
-            }
-        });
-
-        const unsubContributorsCol = onSnapshot(collection(db, 'Tags', 'Contributors', 'Profiles'), (snapshot) => {
-            const contribData: ContributorData[] = snapshot.docs.map(doc => {
-                const val = doc.data();
-                return {
-                    id: doc.id,
-                    name: val.Name || val.name || 'Anonymous',
-                    role: val.Role || val.role || '',
-                    image: val.Image || val.image || '',
-                    socials: {
-                        github: (val['Social Accounts']?.Github || val.socials?.github || ''),
-                        linkedin: (val['Social Accounts']?.Linkedin || val.socials?.linkedin || ''),
-                        facebook: (val['Social Accounts']?.Facebook || val.socials?.facebook || ''),
-                        instagram: (val['Social Accounts']?.Instagram || val.socials?.instagram || ''),
-                        portfolio: (val['Social Accounts']?.Portfolio || val.socials?.portfolio || '')
-                    }
-                };
-            });
-            setContributors(prev => {
-                const filtered = prev.filter(c => !contribData.some(d => d.id === c.id));
-                return [...filtered, ...contribData];
-            });
-        });
-
         return () => {
             window.removeEventListener('resize', handleResize);
             observer.disconnect();
-            unsubTags();
-            unsubContributorsDoc();
-            unsubContributorsCol();
         };
+    }, []);
+
+    const loadTags = async () => {
+        try {
+            const res = await fetch('/api/tags');
+            const body = await res.json();
+            const tagsData: TagData[] = (body.data as ApiTag[]).map(t => ({
+                id: t.id.toString(),
+                name: t.name,
+                color: t.color,
+                iconSvg: t.iconUrl || ''
+            }));
+            setTags(tagsData);
+        } catch (err) {
+            console.warn('Failed to load tags', err);
+        }
+    };
+
+    const loadContributors = async () => {
+        try {
+            const res = await fetch('/api/contributors');
+            const body = await res.json();
+            const contribData: ContributorData[] = (body.data as ApiContributor[]).map(c => ({
+                id: c.id.toString(),
+                name: c.name,
+                role: c.role || '',
+                image: c.imageUrl || '',
+                socials: {
+                    github: c.github || '',
+                    linkedin: c.linkedin || '',
+                    facebook: c.facebook || '',
+                    instagram: c.instagram || '',
+                    portfolio: c.portfolio || ''
+                }
+            }));
+            setContributors(contribData);
+        } catch (err) {
+            console.warn('Failed to load contributors', err);
+        }
+    };
+
+    useEffect(() => {
+        loadTags();
+        loadContributors();
     }, []);
 
     useEffect(() => {
@@ -248,29 +214,30 @@ const DTags = () => {
     const handleSaveTag = async (data: TagFormData) => {
         try {
             setIsLoading(true);
-            const nextIndex = tags.length > 0
-                ? Math.max(...tags.map(t => parseInt(t.id?.toString() || '0')).filter(n => !isNaN(n))) + 1
-                : 1;
-            const id = data.id || nextIndex.toString();
 
             let iconUrl = data.iconSvg || '';
 
             // Handle file upload if a new file was provided
             if (data.iconFile) {
-                const storageRef = ref(storage, `src/svgs/${id}_${data.iconFile.name}`);
-                await uploadBytes(storageRef, data.iconFile);
-                iconUrl = await getDownloadURL(storageRef);
+                iconUrl = await uploadToCloudinary(data.iconFile, 'tags');
             }
 
-            const tagPayload = {
-                Name: data.name,
-                Color: data.color,
-                Icon: iconUrl
-            };
+            const payload = { name: data.name, color: data.color, iconUrl };
 
-            await updateDoc(doc(db, 'Tags', 'Tags'), {
-                [id]: tagPayload
-            });
+            if (data.id) {
+                await apiFetch(`/api/tags/${data.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                await apiFetch('/api/tags', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            }
+            await loadTags();
 
             setTagModalOpen(false);
             setEditingTag(null);
@@ -290,9 +257,8 @@ const DTags = () => {
             type: 'danger',
             onConfirm: async () => {
                 try {
-                    await updateDoc(doc(db, 'Tags', 'Tags'), {
-                        [id]: deleteField()
-                    });
+                    await apiFetch(`/api/tags/${id}`, { method: 'DELETE' });
+                    await loadTags();
                 } catch (error) {
                     console.error('Error deleting tag:', error);
                 }
@@ -303,55 +269,51 @@ const DTags = () => {
     const handleSaveContributor = async (data: ContributorData) => {
         try {
             setIsLoading(true);
-            const nextIndex = contributors.length > 0
-                ? Math.max(...contributors.map(c => parseInt(c.id?.toString() || '0')).filter(n => !isNaN(n))) + 1
-                : 0;
-            const id = data.id || nextIndex.toString();
-            let imageUrl = '';
+            const id = data.id?.toString();
 
-            // Find the existing contributor to check for old image
             const existingContributor = contributors.find(c => c.id?.toString() === id);
             const oldImageUrl = typeof existingContributor?.image === 'string' ? existingContributor.image : '';
+            let imageUrl = '';
 
             if (typeof data.image === 'string') {
                 imageUrl = data.image;
             } else if (data.image instanceof File) {
-                const now = new Date();
-                const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
-                const safeName = data.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
-                const fileName = `${safeName}-${dateStr}-${timeStr}.png`;
-                const storageRef = ref(storage, `src/imgs/Contributors/${fileName}`);
-                await uploadBytes(storageRef, data.image);
-                imageUrl = await getDownloadURL(storageRef);
+                imageUrl = await uploadToCloudinary(data.image, 'contributors');
 
-                // Delete the old image from storage if it exists and is different
                 if (oldImageUrl && oldImageUrl !== imageUrl) {
                     try {
-                        const oldRef = ref(storage, oldImageUrl);
-                        await deleteObject(oldRef);
+                        await deleteFromCloudinaryUrl(oldImageUrl);
                     } catch (err) {
                         console.warn('Could not delete old contributor image:', err);
                     }
                 }
             }
 
-            const contribPayload = {
-                Name: data.name,
-                Role: data.role,
-                Image: imageUrl,
-                'Social Accounts': {
-                    Github: data.socials?.github || '',
-                    Linkedin: data.socials?.linkedin || '',
-                    Facebook: data.socials?.facebook || '',
-                    Instagram: data.socials?.instagram || '',
-                    Portfolio: data.socials?.portfolio || ''
-                }
+            const payload = {
+                name: data.name,
+                role: data.role,
+                imageUrl,
+                github: data.socials?.github || '',
+                linkedin: data.socials?.linkedin || '',
+                facebook: data.socials?.facebook || '',
+                instagram: data.socials?.instagram || '',
+                portfolio: data.socials?.portfolio || ''
             };
 
-            await updateDoc(doc(db, 'Tags', 'Contributors'), {
-                [id]: contribPayload
-            });
+            if (id) {
+                await apiFetch(`/api/contributors/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                await apiFetch('/api/contributors', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            }
+            await loadContributors();
 
             setContribModalOpen(false);
             setEditingContributor(null);
@@ -371,9 +333,8 @@ const DTags = () => {
             type: 'danger',
             onConfirm: async () => {
                 try {
-                    await updateDoc(doc(db, 'Tags', 'Contributors'), {
-                        [id]: deleteField()
-                    });
+                    await apiFetch(`/api/contributors/${id}`, { method: 'DELETE' });
+                    await loadContributors();
                 } catch (error) {
                     console.error('Error deleting contributor:', error);
                 }
