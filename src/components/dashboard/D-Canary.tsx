@@ -1,11 +1,12 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import anime from 'animejs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Edit2, X, Check, Plus, Trash2, Mail, FileText, ExternalLink, Video, ImageIcon, Paperclip, MoreVertical, Reply } from 'lucide-react';
-import { doc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { db, functions } from '../../lib/firebase';
+import { functions } from '../../lib/firebase';
+import { apiFetch } from '../../lib/apiFetch';
+import { usePolling } from '../../hooks/usePolling';
 
 import Alert from '../Alert';
 import useSafeAlert from '../../hooks/useSafeAlert';
@@ -41,25 +42,27 @@ interface Email {
     attachments: Attachment[];
 }
 
-interface MeetingData {
-    Name?: string;
-    Time: string;
-    Date: string;
-    Email?: string;
-    MeetingLink?: string;
-    "What For"?: string;
-    UserTimezone?: number;
-    GoogleEventId?: string;
+interface MeetingApiRow {
+    id: string;
+    name: string;
+    time: string;
+    date: string; // YYYY-MM-DD
+    email?: string;
+    meetingLink?: string;
+    reason?: string;
+    userTimezone?: number | null;
+    googleEventId?: string | null;
 }
 
-interface EmailData {
-    Name: string;
-    Email: string;
-    Message: string;
-    Number: string;
-    Whatsapp: boolean;
-    Timestamp: number;
-    "Files Attached"?: Attachment[];
+interface EmailApiRow {
+    id: string;
+    name: string;
+    email: string;
+    message: string;
+    number: string | null;
+    whatsapp: boolean;
+    timestamp: number;
+    filesAttached: Attachment[];
 }
 
 const TIME_OPTIONS = [
@@ -101,47 +104,53 @@ const DCanary = () => {
     const directionRef = useRef(0);
     const hasAnimatedRef = useRef<'bookings' | 'mails' | null>(null);
 
-    // Firestore Integration
-    useEffect(() => {
-        const unsubscribe = onSnapshot(doc(db, 'Settings', 'Canary'), (snapshot) => {
-            if (snapshot.exists()) {
-                const data = snapshot.data();
-                const meetingsMap = (data.Meetings || {}) as Record<string, MeetingData>;
-                const meetingsList: Meeting[] = Object.entries(meetingsMap).map(([id, m]) => {
-                    const [d, mon, y] = m.Date.split('/').map(Number);
+    // Poll admin meetings + contact messages (replaces Firestore onSnapshot)
+    const refetch = useCallback(async () => {
+        try {
+            const [meetingsRes, emailsRes] = await Promise.all([
+                apiFetch('/api/admin/meetings'),
+                apiFetch('/api/admin/contact-messages'),
+            ]);
+
+            if (meetingsRes.ok) {
+                const { data } = await meetingsRes.json() as { data: MeetingApiRow[] };
+                const meetingsList: Meeting[] = data.map((m) => {
+                    const [y, mon, d] = m.date.split('-').map(Number);
                     return {
-                        id,
-                        title: m.Name || 'Untitled Session',
-                        time: m.Time,
+                        id: m.id,
+                        title: m.name || 'Untitled Session',
+                        time: m.time,
                         date: new Date(y, mon - 1, d),
-                        email: m.Email,
-                        link: m.MeetingLink,
-                        reason: m["What For"],
-                        userTimezone: m.UserTimezone || -(new Date().getTimezoneOffset() / 60),
-                        googleEventId: m.GoogleEventId
+                        email: m.email,
+                        link: m.meetingLink ?? undefined,
+                        reason: m.reason ?? undefined,
+                        userTimezone: m.userTimezone ?? -(new Date().getTimezoneOffset() / 60),
+                        googleEventId: m.googleEventId ?? undefined,
                     };
                 });
                 setMeetings(meetingsList);
+            }
 
-                const emailsMap = (data.Emails || {}) as Record<string, EmailData>;
-                const emailsList: Email[] = Object.entries(emailsMap).map(([id, e]) => ({
-                    id,
-                    name: e.Name,
-                    email: e.Email,
-                    message: e.Message,
-                    number: e.Number,
-                    whatsapp: e.Whatsapp,
-                    timestamp: e.Timestamp,
-                    attachments: e["Files Attached"] || []
-                })).sort((a, b) => b.timestamp - a.timestamp);
+            if (emailsRes.ok) {
+                const { data } = await emailsRes.json() as { data: EmailApiRow[] };
+                const emailsList: Email[] = data.map((e) => ({
+                    id: e.id,
+                    name: e.name,
+                    email: e.email,
+                    message: e.message,
+                    number: e.number ?? '',
+                    whatsapp: e.whatsapp,
+                    timestamp: e.timestamp,
+                    attachments: e.filesAttached || [],
+                }));
                 setEmails(emailsList);
             }
-        }, (err) => {
-            console.warn("[Connection] Canary sync error:", err);
-            if (!navigator.onLine) console.warn("User is offline");
-        });
-        return () => unsubscribe();
+        } catch (err) {
+            console.warn("[Connection] Canary poll error:", err);
+        }
     }, []);
+
+    usePolling(refetch, 12000);
 
     useEffect(() => {
         const handleResize = () => setWindowWidth(window.innerWidth);
@@ -281,11 +290,9 @@ const DCanary = () => {
                 }
             }
 
-            // 2. Delete from Firestore
-            const docRef = doc(db, 'Settings', 'Canary');
-            await updateDoc(docRef, {
-                [`Meetings.${id}`]: deleteField()
-            });
+            // 2. Delete from the database
+            await apiFetch(`/api/admin/meetings/${id}`, { method: 'DELETE' });
+            await refetch();
 
             showAlert({ type: 'success', message: 'Session cancelled successfully' });
         } catch (error) {
@@ -380,23 +387,27 @@ const DCanary = () => {
                 }
             }
 
-            const docRef = doc(db, 'Settings', 'Canary');
             const day = editingMeeting.date.getDate().toString().padStart(2, '0');
             const mon = (editingMeeting.date.getMonth() + 1).toString().padStart(2, '0');
             const y = editingMeeting.date.getFullYear();
-            const dateStr = `${day}/${mon}/${y}`;
+            const dateStr = `${y}-${mon}-${day}`;
 
             const updatePayload: Record<string, string> = {
-                [`Meetings.${editingMeeting.id}.Date`]: dateStr,
-                [`Meetings.${editingMeeting.id}.Time`]: editingMeeting.time,
-                [`Meetings.${editingMeeting.id}.Name`]: editingMeeting.title
+                date: dateStr,
+                time: editingMeeting.time,
+                name: editingMeeting.title,
             };
 
             if (newGoogleId) {
-                updatePayload[`Meetings.${editingMeeting.id}.GoogleEventId`] = newGoogleId;
+                updatePayload.googleEventId = newGoogleId;
             }
 
-            await updateDoc(docRef, updatePayload);
+            await apiFetch(`/api/admin/meetings/${editingMeeting.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatePayload),
+            });
+            await refetch();
 
             setEditingMeeting(null);
             showAlert({ type: 'success', message: 'Session rescheduled successfully' });
@@ -412,9 +423,8 @@ const DCanary = () => {
         setConfirmDelete(null);
         setOpenOptionsId(null);
         try {
-            await updateDoc(doc(db, 'Settings', 'Canary'), {
-                [`Emails.${emailId}`]: deleteField()
-            });
+            await apiFetch(`/api/admin/contact-messages/${emailId}`, { method: 'DELETE' });
+            await refetch();
             if (selectedEmail?.id === emailId) {
                 setSelectedEmail(null);
             }

@@ -1,6 +1,4 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { doc, getDoc, updateDoc, increment, collection, getDocs, setDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import Alert from './Alert';
 import useSafeAlert from '../hooks/useSafeAlert';
 
@@ -14,6 +12,16 @@ interface AlgorithmProps {
 interface ProjectStats {
     views: number;
     duration: number; // seconds
+}
+
+interface LinkBaseline {
+    id: number;
+    interviewer: boolean;
+    totalSessionSeconds: number;
+    stackSeconds: number;
+    contactOpens: number;
+    projects: { projectId: number; seconds: number; views: number }[];
+    socials: { platform: string; seconds: number; views: number }[];
 }
 
 export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: AlgorithmProps) => {
@@ -31,8 +39,10 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
         projectOpenTime: 0,
         socialStats: {} as Record<string, { views: number; duration: number }>,
         isSyncing: false,
-        baseMetrics: null as string | null,
     });
+
+    // Link code + baseline for the final keepalive sync
+    const linkCodeRef = useRef<string | null>(null);
 
     // Tracking active section time
     const lastSectionCheck = useRef(0);
@@ -71,7 +81,7 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
         // Stop tracking if we enter admin sections
         if (currentSection === 'dashboard' || currentSection === 'secret') {
             sessionStorage.removeItem('revil_link_id');
-            metrics.current.baseMetrics = null;
+            linkCodeRef.current = null;
         }
 
         return () => clearInterval(interval);
@@ -85,31 +95,9 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
         prevContactOpen.current = isContactOpen;
     }, [isContactOpen]);
 
-    // 1.5 Helper to increment specific daily stats in Firestore
-    const incrementDailyStat = useCallback(async (field: 'projectViews' | 'socialClicks') => {
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            const dailyRef = doc(db, 'Settings', 'Views', 'Analysis', 'Daily');
-            const mainRef = doc(db, 'Settings', 'Views', 'Analysis', 'Main');
-
-            // Map the field to the corresponding Main document field
-            const mainField = field === 'projectViews' ? 'Total Project Views' : 'Total Social Clicks';
-
-            // Update Daily
-            await setDoc(dailyRef, {
-                [today]: {
-                    [field]: increment(1)
-                }
-            }, { merge: true });
-
-            // Update Main
-            await setDoc(mainRef, {
-                [mainField]: increment(1)
-            }, { merge: true });
-
-        } catch (error) {
-            console.error(`Error incrementing daily ${field}:`, error);
-        }
+    // 1.5 Helper to increment the project-view daily/summary counters
+    const incrementProjectViewStat = useCallback(() => {
+        fetch('/api/tracking/project-view', { method: 'POST' }).catch(() => {});
     }, []);
 
     // 2. Listen for Project Events & Social Events
@@ -123,7 +111,7 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
                 metrics.current.projectStats[id] = { views: 0, duration: 0 };
             }
             metrics.current.projectStats[id].views += 1;
-            incrementDailyStat('projectViews');
+            incrementProjectViewStat();
         };
 
         const handleProjectClose = () => {
@@ -132,11 +120,13 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
 
         const handleSocialClick = (e: CustomEvent) => {
             const { name } = e.detail;
+            // Counter increment + SocialClick row creation is handled by useSocialTracker's
+            // own POST /api/tracking/social-click call — this listener only tracks
+            // per-link duration/views for the final session sync.
             if (!metrics.current.socialStats[name]) {
                 metrics.current.socialStats[name] = { views: 0, duration: 0 };
             }
             metrics.current.socialStats[name].views += 1;
-            incrementDailyStat('socialClicks');
         };
 
         const handleSocialReturn = (e: CustomEvent) => {
@@ -160,62 +150,27 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
             window.removeEventListener('revil:social_click', handleSocialClick as EventListener);
             window.removeEventListener('revil:social_return', handleSocialReturn as EventListener);
         };
-    }, [incrementDailyStat]);
+    }, [incrementProjectViewStat]);
 
     // 2.5 Global Analytics Tracking
     const hasTrackedVisit = useRef(false);
     useEffect(() => {
-        const trackGlobalVisit = async () => {
+        const trackGlobalVisit = () => {
             if (hasTrackedVisit.current || currentSection === 'dashboard' || currentSection === 'secret') return;
             hasTrackedVisit.current = true;
 
             try {
-                const mainRef = doc(db, 'Settings', 'Views', 'Analysis', 'Main');
-                const dailyRef = doc(db, 'Settings', 'Views', 'Analysis', 'Daily');
                 const today = new Date().toISOString().split('T')[0];
-
-                const hasVisitedToday = localStorage.getItem(`revil_visitor_today_${today}`);
-
-                // Get Main analytics
-                const mainSnap = await getDoc(mainRef);
-                const mainData = mainSnap.exists() ? mainSnap.data() : {};
-
-                // Get Daily analytics
-                const dailySnap = await getDoc(dailyRef);
-                const dailyData = dailySnap.exists() ? dailySnap.data() : {};
-
-                const todayData = dailyData[today] || { total: 0, unique: 0 };
-
-                // Update counters for Main
-                const currentTotal = typeof mainData["Total Reach"] === 'number' ? mainData["Total Reach"] : parseInt(mainData["Total Reach"] || '0');
-                const newTodayTotal = (todayData.total || 0) + 1;
-
-                // Calculate Daily Unique
-                let newUniqueToday = todayData.unique || 0;
+                const hasVisitedToday = !!localStorage.getItem(`revil_visitor_today_${today}`);
                 if (!hasVisitedToday) {
-                    newUniqueToday += 1;
                     localStorage.setItem(`revil_visitor_today_${today}`, 'true');
                 }
 
-                // Update Main document
-                await setDoc(mainRef, {
-                    "Total Reach": currentTotal + 1,
-                    "Today's Viewers": newTodayTotal,
-                    "Reach (Per Device)": newUniqueToday,
-                    "Total Project Views": mainData["Total Project Views"] || 0,
-                    "Total Social Clicks": mainData["Total Social Clicks"] || 0
-                }, { merge: true });
-
-                // Update Daily map in Daily document
-                await setDoc(dailyRef, {
-                    [today]: {
-                        total: newTodayTotal,
-                        unique: newUniqueToday,
-                        // Initialize these if it's the first visit of the day
-                        projectViews: todayData.projectViews || 0,
-                        socialClicks: todayData.socialClicks || 0
-                    }
-                }, { merge: true });
+                fetch('/api/tracking/visit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ isNewUnique: !hasVisitedToday }),
+                }).catch(() => {});
             } catch (error) {
                 console.error("Global Analytics Error:", error);
             }
@@ -239,44 +194,21 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
             hasRecordedRef.current = true;
 
             try {
-                // Get all links from Settings/Views/Links collection
-                const linksSnap = await getDocs(collection(db, 'Settings', 'Views', 'Links'));
-                let foundId: string | null = null;
-                let existingRec = '';
-                for (const linkDoc of linksSnap.docs) {
-                    const item = linkDoc.data() as Record<string, unknown>;
-                    const itemCode = typeof item['Code'] === 'string' ? String(item['Code']) : '';
-                    const itemRec = typeof item['Rec_CLI'] === 'string' ? String(item['Rec_CLI']) : '';
-                    if (itemCode === code || itemRec === code) {
-                        foundId = linkDoc.id;
-                        existingRec = itemRec || '';
-                        break;
-                    }
-                }
-
-                if (!foundId) {
+                const res = await fetch(`/api/tracking/links/${encodeURIComponent(code)}`);
+                if (!res.ok) {
+                    if (onNavigate) setTimeout(() => onNavigate('home'), 500);
                     return;
                 }
 
-                sessionStorage.setItem('revil_link_id', foundId);
-                metrics.current.baseMetrics = existingRec;
+                const { data } = await res.json() as { data: LinkBaseline };
 
-                // Check for Interviewer Mode
-                const linkDoc = linksSnap.docs.find(d => d.id === foundId);
-                if (linkDoc) {
-                    const linkData = linkDoc.data() as Record<string, unknown>;
-                    const isInterviewer = !!linkData && (linkData['Interviewer'] === true);
-                    if (isInterviewer) {
-                        sessionStorage.setItem('revil_interviewer_mode', 'true');
-                    } else {
-                        sessionStorage.removeItem('revil_interviewer_mode');
-                    }
+                linkCodeRef.current = code;
+                sessionStorage.setItem('revil_link_id', code);
 
-                    // Increment view count in Settings/Views/Links/{foundId}
-                    const docRef = doc(db, 'Settings', 'Views', 'Links', foundId);
-                    await updateDoc(docRef, {
-                        Views: increment(1)
-                    });
+                if (data.interviewer) {
+                    sessionStorage.setItem('revil_interviewer_mode', 'true');
+                } else {
+                    sessionStorage.removeItem('revil_interviewer_mode');
                 }
 
                 // Always redirect home after processing code
@@ -297,8 +229,8 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
     // Only Sync at the very end — using keepalive fetch for reliability
     useEffect(() => {
         const handleFinalSync = () => {
-            const linkId = sessionStorage.getItem('revil_link_id');
-            if (!linkId || metrics.current.isSyncing) return;
+            const linkCode = sessionStorage.getItem('revil_link_id');
+            if (!linkCode || metrics.current.isSyncing) return;
 
             const totalSessionSeconds = Math.floor((Date.now() - sessionStart.current) / 1000);
             const m = metrics.current;
@@ -310,131 +242,31 @@ export const Algorithm = ({ currentSection, isContactOpen, onNavigate }: Algorit
 
             metrics.current.isSyncing = true;
 
-            // Build the rec string synchronously
-            const formatTime = (s: number) => {
-                const mins = Math.floor(s / 60);
-                const secs = Math.floor(s % 60);
-                return `${mins}m ${secs}s`;
-            };
-
-            const parseToSecs = (raw: string | null, label: string) => {
-                if (!raw) return 0;
-                try {
-                    const regex = new RegExp(`${label}:\\s*(.*?)(?:,|]|$)`);
-                    const match = raw.match(regex);
-                    if (!match) return 0;
-                    const timeStr = match[1];
-                    const msMatch = timeStr.match(/(\d+)m\s*(\d+)s/);
-                    if (msMatch) return (parseInt(msMatch[1]) * 60) + parseInt(msMatch[2]);
-                    const mMatch = timeStr.match(/([\d.]+)m/);
-                    if (mMatch) return Math.floor(parseFloat(mMatch[1]) * 60);
-                } catch { /* swallow */ }
-                return 0;
-            };
-
-            const parseProjects = (raw: string | null) => {
-                const pMap: Record<string, { seconds: number; views: number }> = {};
-                if (!raw) return pMap;
-                try {
-                    const pStr = raw.match(/Projects:\[(.*?)\]/)?.[1] || raw.match(/P:\[(.*?)\]/)?.[1] || '';
-                    if (pStr) {
-                        pStr.split('|').forEach(item => {
-                            const parts = item.split(':');
-                            if (parts.length >= 2) {
-                                const id = parts[0];
-                                const timePart = parts[1];
-                                const viewsMatch = item.match(/\((\d+)x\)$/) || item.match(/:(\d+)v$/);
-                                const views = viewsMatch ? parseInt(viewsMatch[1]) : 0;
-                                let seconds = 0;
-                                const msM = timePart.match(/(\d+)m\s*(\d+)s/);
-                                const mM = timePart.match(/([\d.]+)m/);
-                                if (msM) seconds = (parseInt(msM[1]) * 60) + parseInt(msM[2]);
-                                else if (mM) seconds = Math.floor(parseFloat(mM[1]) * 60);
-                                pMap[id] = { seconds, views };
-                            }
-                        });
-                    }
-                } catch { /* swallow */ }
-                return pMap;
-            };
-
-            const parseSocials = (raw: string | null) => {
-                const sMap: Record<string, { seconds: number; views: number }> = {};
-                if (!raw) return sMap;
-                try {
-                    const sStr = raw.match(/Socials:\[(.*?)\]/)?.[1] || '';
-                    if (sStr) {
-                        sStr.split('|').forEach(item => {
-                            const parts = item.split(':');
-                            if (parts.length >= 2) {
-                                const id = parts[0];
-                                const timePart = parts[1];
-                                const viewsMatch = item.match(/\((\d+)x\)$/);
-                                const views = viewsMatch ? parseInt(viewsMatch[1]) : 0;
-                                let seconds = 0;
-                                const msM = timePart.match(/(\d+)m\s*(\d+)s/);
-                                if (msM) seconds = (parseInt(msM[1]) * 60) + parseInt(msM[2]);
-                                sMap[id] = { seconds, views };
-                            }
-                        });
-                    }
-                } catch { /* swallow */ }
-                return sMap;
-            };
-
-            const baseTotalSecs = parseToSecs(m.baseMetrics, 'Session') || parseToSecs(m.baseMetrics, 'T');
-            const baseStackSecs = parseToSecs(m.baseMetrics, 'Stack') || parseToSecs(m.baseMetrics, 'S');
-            const baseContact = parseInt(m.baseMetrics?.match(/Contact:(\d+)/)?.[1] || m.baseMetrics?.match(/C:(\d+)/)?.[1] || '0');
-            const baseProjects = parseProjects(m.baseMetrics);
-            const baseSocials = parseSocials(m.baseMetrics);
-
-            const finalTotalSecs = baseTotalSecs + totalSessionSeconds;
-            const finalStackSecs = baseStackSecs + m.stackTime;
-            const finalContact = baseContact + m.contactOpens;
-
-            const mergedProjects = { ...baseProjects };
-            Object.entries(m.projectStats).forEach(([id, stats]) => {
-                if (!mergedProjects[id]) mergedProjects[id] = { seconds: 0, views: 0 };
-                mergedProjects[id].seconds += stats.duration;
-                mergedProjects[id].views += stats.views;
+            const body = JSON.stringify({
+                sessionSeconds: totalSessionSeconds,
+                stackSeconds: Math.round(m.stackTime),
+                contactOpens: m.contactOpens,
+                projects: Object.entries(m.projectStats).map(([projectId, stats]) => ({
+                    projectId: Number(projectId),
+                    seconds: Math.round(stats.duration),
+                    views: stats.views,
+                })),
+                socials: Object.entries(m.socialStats).map(([platform, stats]) => ({
+                    platform,
+                    seconds: Math.round(stats.duration),
+                    views: stats.views,
+                })),
             });
-            const projStr = Object.entries(mergedProjects).map(([id, stats]) => `${id}:${formatTime(stats.seconds)}(${stats.views}x)`).join('|');
 
-            const mergedSocials = { ...baseSocials };
-            Object.entries(m.socialStats).forEach(([id, stats]) => {
-                if (!mergedSocials[id]) mergedSocials[id] = { seconds: 0, views: 0 };
-                mergedSocials[id].seconds += stats.duration;
-                mergedSocials[id].views += stats.views;
+            // keepalive: true ensures the request survives page navigation/close
+            fetch(`/api/tracking/links/${encodeURIComponent(linkCode)}/sync`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+                keepalive: true,
+            }).catch(() => {
+                // Silent fail — page is already closing
             });
-            const socialStr = Object.entries(mergedSocials).map(([id, stats]) => `${id}:${formatTime(stats.seconds)}(${stats.views}x)`).join('|');
-
-            const recString = `Session:${formatTime(finalTotalSecs)}, Stack:${formatTime(finalStackSecs)}, Contact:${finalContact}, Projects:[${projStr}], Socials:[${socialStr}]`;
-            
-            // Truncate to avoid 64KB keepalive limit
-            const finalRecString = new Blob([recString]).size > 60000 
-                ? recString.substring(0, Math.floor(60000 / 4)) + "...(truncated)"
-                : recString;
-
-            // Use Firestore REST API with keepalive: true for reliable delivery on page unload
-            const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-            if (projectId) {
-                const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/Settings/Views/Links/${linkId}?updateMask.fieldPaths=Rec_CLI`;
-                const body = JSON.stringify({
-                    fields: {
-                        Rec_CLI: { stringValue: finalRecString }
-                    }
-                });
-
-                // keepalive: true ensures the request survives page navigation/close
-                fetch(url, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body,
-                    keepalive: true
-                }).catch(() => {
-                    // Silent fail — page is already closing
-                });
-            }
 
             metrics.current.isSyncing = false;
         };

@@ -2,28 +2,12 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Paperclip, User, Phone, MessageSquare, Check, Mail, Calendar, Clock, ChevronLeft, ChevronRight, AlertCircle, Globe } from 'lucide-react';
-import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { uploadToCloudinary } from '../lib/cloudinary';
-import { db, functions } from '../lib/firebase';
+import { functions } from '../lib/firebase';
 import Alert from './Alert'; // Import Custom Alert
 import useSafeAlert from '../hooks/useSafeAlert';
 import useTheme from '../hooks/useTheme';
-
-interface Meeting {
-  Date: string;
-  Time: string;
-  Name: string;
-  Email: string;
-  Reason?: string;
-  "What For"?: string;
-  dateObj: Date;
-  MeetingLink?: string;
-  GoogleEventId?: string;
-  UserLocalTime?: string;
-  UserTimezone?: number;
-  timestamp?: number;
-}
 
 interface MeetingFunctionResponse {
   status: string;
@@ -91,7 +75,8 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
     reason: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [existingMeetings, setExistingMeetings] = useState<Meeting[]>([]);
+  // Booked time slots keyed by DD/MM/YYYY (no attendee data — public endpoint only exposes occupancy)
+  const [bookedByDate, setBookedByDate] = useState<Record<string, string[]>>({});
   const [bookingSuccess, setBookingSuccess] = useState<{ date: string, time: string, link: string } | null>(null);
   const [showNameTooltip, setShowNameTooltip] = useState(false);
   const [showEmailTooltip, setShowEmailTooltip] = useState(false);
@@ -99,7 +84,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
   // Timezone States
-  const [hostTimezoneString, setHostTimezoneString] = useState('UTC+02:00 (EET)'); // Default
+  const [hostOffset, setHostOffset] = useState(0);
   const [userTimezone, setUserTimezone] = useState<number>(() => {
     // Detect system timezone offset in hours
     return -(new Date().getTimezoneOffset() / 60);
@@ -145,42 +130,14 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
     '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'
   ], []);
 
-  // Sync Host Availability & Timezone
+  // Fetch host availability (numeric UTC offset) once on mount
   useEffect(() => {
-    const unsubscribeAvailability = onSnapshot(doc(db, 'Settings', 'Availability'), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data['Current Time']) {
-          setHostTimezoneString(data['Current Time']);
-        }
-      }
-    });
-
-    const unsubscribeMeetings = onSnapshot(doc(db, 'Settings', 'Canary'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const meetingsMap = (data.Meetings || {}) as Record<string, Partial<Meeting>>;
-        const meetingsList = Object.values(meetingsMap).map((m): Meeting => ({
-          Date: m.Date || '',
-          Time: m.Time || '',
-          Name: m.Name || '',
-          Email: m.Email || '',
-          Reason: m.Reason || m["What For"] || '',
-          dateObj: new Date(m.Date || Date.now()),
-          MeetingLink: m.MeetingLink,
-          GoogleEventId: m.GoogleEventId,
-          UserLocalTime: m.UserLocalTime,
-          UserTimezone: m.UserTimezone,
-          timestamp: m.timestamp
-        }));
-        setExistingMeetings(meetingsList);
-      }
-    });
-
-    return () => {
-      unsubscribeAvailability();
-      unsubscribeMeetings();
-    };
+    fetch('/api/settings/availability')
+      .then(res => res.json())
+      .then((res: { data?: { timezoneOffset?: number } }) => {
+        if (typeof res.data?.timezoneOffset === 'number') setHostOffset(res.data.timezoneOffset);
+      })
+      .catch(() => {});
   }, []);
 
   const formatDateDDMMYYYY = useCallback((date: Date) => {
@@ -190,21 +147,35 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
     return `${day}/${month}/${year}`;
   }, []);
 
-  const getMeetingsForDate = useCallback((date: Date) => {
+  // Fetch booked slots (no attendee data) for the visible calendar month + the following month
+  const fetchSlotsForMonth = useCallback(async (year: number, month: number) => {
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    try {
+      const res = await fetch(`/api/booking/slots?month=${monthStr}`);
+      if (!res.ok) return;
+      const { data } = await res.json() as { data: Record<string, string[]> };
+      setBookedByDate(prev => {
+        const next = { ...prev };
+        for (const [isoDate, times] of Object.entries(data)) {
+          const [y, m, d] = isoDate.split('-');
+          next[`${d}/${m}/${y}`] = times;
+        }
+        return next;
+      });
+    } catch { /* best-effort */ }
+  }, []);
+
+  useEffect(() => {
+    fetchSlotsForMonth(calendarDate.getFullYear(), calendarDate.getMonth());
+    const next = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1);
+    fetchSlotsForMonth(next.getFullYear(), next.getMonth());
+  }, [calendarDate, fetchSlotsForMonth]);
+
+  const getBookedTimesForDate = useCallback((date: Date) => {
     const dateStr = formatDateDDMMYYYY(date);
-    return existingMeetings.filter(m => m.Date === dateStr);
-  }, [existingMeetings, formatDateDDMMYYYY]);
+    return bookedByDate[dateStr] || [];
+  }, [bookedByDate, formatDateDDMMYYYY]);
 
-  // Time Helpers
-  const getOffsetFromUTCString = (tzStr: string) => {
-    const match = tzStr.match(/UTC([+-]\d{2}):(\d{2})/);
-    if (!match) return 0;
-    const hours = parseInt(match[1]);
-    const minutes = parseInt(match[2]);
-    return hours + (minutes / 60) * (hours < 0 ? -1 : 1);
-  };
-
-  const hostOffset = getOffsetFromUTCString(hostTimezoneString);
   const offsetDiff = userTimezone - hostOffset;
 
   // Convert "09:00 AM" strings to User's Perspective
@@ -287,7 +258,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
 
     const checkAvailable = (date: Date) => {
       return timeSlots.some((hostTime) => {
-        const isBusy = getMeetingsForDate(date).some(m => m.Time === hostTime);
+        const isBusy = getBookedTimesForDate(date).includes(hostTime);
         const passed = isTimePassed(date, hostTime);
         return !isBusy && !passed;
       });
@@ -315,7 +286,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
       }
     }
     hasAutoMoved.current = true;
-  }, [existingMeetings, hostTimezoneString, selectedDate, timeSlots, getMeetingsForDate, isTimePassed, activeTab]);
+  }, [bookedByDate, hostOffset, selectedDate, timeSlots, getBookedTimesForDate, isTimePassed, activeTab]);
 
   // Reset auto-move flag when modal closes (if it was an external state) or handle it inside the component
   useEffect(() => {
@@ -376,39 +347,33 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
       const meetLink = result.link;
       const googleEventId = result.id;
 
-      // 4. Save to Firebase
-      const docRef = doc(db, 'Settings', 'Canary');
+      // 4. Save the booking
       const dateStr = formatDateDDMMYYYY(selectedDate);
-      // Use a transaction to safely generate the next meeting ID without race conditions
-      await runTransaction(db, async (transaction) => {
-        const docSnap = await transaction.get(docRef);
-        let nextId = "1";
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const meetings = data.Meetings || {};
-          const keys = Object.keys(meetings).map(k => parseInt(k, 10)).filter(k => !isNaN(k));
-          if (keys.length > 0) nextId = (Math.max(...keys) + 1).toString();
-        }
+      // Save it in the host's perspective so they see it in their local time in their dashboard
+      const hostPerspecTime = convertTimeToHost(selectedTime);
 
-        // Save it in the host's perspective so they see it in their local time in their dashboard
-        const hostPerspecTime = convertTimeToHost(selectedTime);
-
-        const payload = {
-          Date: dateStr,
-          Time: hostPerspecTime,
-          UserLocalTime: selectedTime,
-          UserTimezone: userTimezone,
-          Email: meetingData.email.trim(),
-          "What For": meetingData.reason,
-          Name: meetingData.name,
-          timestamp: Date.now(),
-          MeetingLink: meetLink,
-          GoogleEventId: googleEventId // Store the ID for reliable deletion/updates
-        };
-
-        transaction.update(docRef, { [`Meetings.${nextId}`]: payload });
+      const bookRes = await fetch('/api/booking/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: dateStr,
+          time: hostPerspecTime,
+          userLocalTime: selectedTime,
+          userTimezone,
+          email: meetingData.email.trim(),
+          reason: meetingData.reason,
+          name: meetingData.name,
+          meetingLink: meetLink,
+          googleEventId,
+        }),
       });
 
+      if (!bookRes.ok) {
+        const errBody = await bookRes.json().catch(() => null) as { message?: string } | null;
+        throw new Error(errBody?.message || 'This time slot is already booked');
+      }
+
+      setBookedByDate(prev => ({ ...prev, [dateStr]: [...(prev[dateStr] || []), hostPerspecTime] }));
       setBookingSuccess({ date: dateStr, time: selectedTime || '', link: meetLink || '' });
       setMeetingData({ name: '', email: '', reason: '' });
 
@@ -502,39 +467,28 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
     setIsSubmitting(true);
 
     try {
-      const docRef = doc(db, 'Settings', 'Canary');
-      // Use a transaction to safely generate the next email ID without race conditions
-      await runTransaction(db, async (transaction) => {
-        const docSnap = await transaction.get(docRef);
-        let nextId = "1";
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const emails = data.Emails || {};
-          const keys = Object.keys(emails).map(k => parseInt(k, 10)).filter(k => !isNaN(k));
-          if (keys.length > 0) nextId = (Math.max(...keys) + 1).toString();
+      const uploadedFiles = [];
+      if (formData.attachments.length > 0) {
+        for (const file of formData.attachments) {
+          const downloadURL = await uploadToCloudinary(file, `emails/${Date.now()}`);
+          uploadedFiles.push({ name: file.name, url: downloadURL });
         }
+      }
 
-        // Handle File Uploads (outside transaction since Storage is separate)
-        const uploadedFiles = [];
-        if (formData.attachments.length > 0) {
-          for (const file of formData.attachments) {
-            const downloadURL = await uploadToCloudinary(file, `emails/${nextId}`);
-            uploadedFiles.push({ name: file.name, url: downloadURL });
-          }
-        }
-
-        const payload = {
-          Name: formData.name,
-          Email: formData.email,
-          "Files Attached": uploadedFiles,
-          Message: formData.message,
-          Number: formData.number,
-          Whatsapp: formData.hasWhatsapp,
-          Timestamp: Date.now()
-        };
-
-        transaction.update(docRef, { [`Emails.${nextId}`]: payload });
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          message: formData.message,
+          number: formData.number,
+          whatsapp: formData.hasWhatsapp,
+          filesAttached: uploadedFiles,
+        }),
       });
+
+      if (!res.ok) throw new Error('Failed to submit contact message');
 
       showAlert({ type: 'success', message: "Message sent! I'll get back to you soon." });
       setFormData({
@@ -756,13 +710,13 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
                               const day = i + 1;
                               const date = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day);
                               const isSelected = selectedDate?.toDateString() === date.toDateString();
-                              const meetingsForDay = getMeetingsForDate(date);
-                              const hasMeetings = meetingsForDay.length > 0;
+                              const bookedTimesForDay = getBookedTimesForDate(date);
+                              const hasMeetings = bookedTimesForDay.length > 0;
                               const today = new Date();
                               today.setHours(0, 0, 0, 0);
                               const isPast = date < today;
                               const hasFreeSlots = timeSlots.some((hostTime) => {
-                                const isBusy = getMeetingsForDate(date).some(m => m.Time === hostTime);
+                                const isBusy = bookedTimesForDay.includes(hostTime);
                                 const passed = isTimePassed(date, hostTime);
                                 return !isBusy && !passed;
                               });
@@ -799,13 +753,13 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
                                     {day}
                                   </span>
 
-                                  {/* Meeting Indicators on Calendar */}
+                                  {/* Meeting Indicators on Calendar (no attendee data exposed publicly) */}
                                   {hasMeetings && !isSelected && (
                                     <div style={{ display: 'flex', gap: '2px', justifyContent: 'center', marginTop: '4px' }}>
-                                      {meetingsForDay.slice(0, 3).map((m: Meeting, idx) => (
-                                        <div key={idx} title={`${m.Time} - ${m.Name}`} style={{
+                                      {bookedTimesForDay.slice(0, 3).map((time) => (
+                                        <div key={time} title={time} style={{
                                           width: '4px', height: '4px', borderRadius: '50%',
-                                          background: m.Name === meetingData.name ? '#f59e0b' : '#10b981', // Owner meetings orange, others green
+                                          background: '#10b981',
                                           position: 'relative', zIndex: 1
                                         }} />
                                       ))}
@@ -859,14 +813,14 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
                                 <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '16px' }}>
                                   {selectedDate ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : 'Select a Date'}
                                 </h4>
-                                {/* List of Meetings for that Day */}
+                                {/* Booked Slots for that Day (attendee details are not public) */}
                                 <div className="glass-surface" style={{ minHeight: '100px', borderRadius: '20px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'}` }}>
-                                  {selectedDate && getMeetingsForDate(selectedDate).length > 0 ? (
-                                    getMeetingsForDate(selectedDate).map((m: Meeting, i) => (
-                                      <div key={i} className="flex items-center gap-3 py-1" style={{ borderBottom: i === getMeetingsForDate(selectedDate).length - 1 ? 'none' : (isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.05)') }}>
+                                  {selectedDate && getBookedTimesForDate(selectedDate).length > 0 ? (
+                                    getBookedTimesForDate(selectedDate).map((time, i, arr) => (
+                                      <div key={time} className="flex items-center gap-3 py-1" style={{ borderBottom: i === arr.length - 1 ? 'none' : (isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.05)') }}>
                                         <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'rgb(59, 130, 246)', boxShadow: '0 0 8px rgba(59, 130, 246, 0.5)' }} />
                                         <div className="flex-1">
-                                          <div className="text-sm font-semibold text-primary">{convertTimeToUser(m.Time)} - <span style={{ opacity: 0.7 }}>{m.Name}</span></div>
+                                          <div className="text-sm font-semibold text-primary">{convertTimeToUser(time)} — Booked</div>
                                         </div>
                                       </div>
                                     ))
@@ -880,7 +834,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
                               {selectedDate && (() => {
                                 const isPast = selectedDate < new Date(new Date().setHours(0, 0, 0, 0));
                                 const hasFreeSlots = timeSlots.some((hostTime) => {
-                                  const isBusy = getMeetingsForDate(selectedDate).some(m => m.Time === hostTime);
+                                  const isBusy = getBookedTimesForDate(selectedDate).includes(hostTime);
                                   const passed = isTimePassed(selectedDate, hostTime);
                                   return !isBusy && !passed;
                                 });
@@ -989,7 +943,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
                                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '16px' }}>
                                         {convertedSlots.map((time, idx) => {
                                           const hostTime = timeSlots[idx];
-                                          const isBusy = getMeetingsForDate(selectedDate).some(m => m.Time === hostTime);
+                                          const isBusy = selectedDate ? getBookedTimesForDate(selectedDate).includes(hostTime) : false;
                                           const passed = isTimePassed(selectedDate, hostTime);
                                           const isDisabled = isBusy || passed;
                                           return (

@@ -25,6 +25,7 @@ model Project {
   tags          ProjectTag[]
   contributors  ProjectContributor[]
   images        ProjectImage[]
+  linkStats     LinkProjectStat[]
 }
 
 model ProjectImage {
@@ -132,4 +133,95 @@ model SettingsAvailability {
   id                  Int   @id @default(1)
   availabilityPercent Int   @default(0)
   timezoneOffset      Float @default(0)
+}
+
+model AnalyticsSummary {
+  id                Int @id @default(1)
+  totalReach        Int @default(0)
+  reachPerDevice    Int @default(0)
+  totalProjectViews Int @default(0)
+  totalSocialClicks Int @default(0)
+}
+
+model AnalyticsDaily {
+  id           Int      @id @default(autoincrement())
+  date         DateTime @unique @db.Date
+  total        Int      @default(0)
+  unique       Int      @default(0)
+  projectViews Int      @default(0)
+  socialClicks Int      @default(0)
+}
+
+model TrackingLink {
+  id                  Int      @id @default(autoincrement())
+  code                String   @unique
+  name                String
+  forField            String
+  interviewer         Boolean  @default(false)
+  views               Int      @default(0)
+  totalSessionSeconds Int      @default(0)
+  stackSeconds        Int      @default(0)
+  contactOpens        Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  projectStats        LinkProjectStat[]
+  socialStats         LinkSocialStat[]
+}
+
+model LinkProjectStat {
+  id        Int          @id @default(autoincrement())
+  linkId    Int
+  projectId Int
+  seconds   Int          @default(0)
+  views     Int          @default(0)
+  link      TrackingLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([linkId, projectId])
+}
+
+model LinkSocialStat {
+  id       Int          @id @default(autoincrement())
+  linkId   Int
+  platform String
+  seconds  Int          @default(0)
+  views    Int          @default(0)
+  link     TrackingLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@unique([linkId, platform])
+}
+
+model Meeting {
+  id            Int      @id @default(autoincrement())
+  date          DateTime @db.Date
+  time          String
+  name          String
+  email         String
+  reason        String?
+  meetingLink   String?
+  googleEventId String?
+  userTimezone  Float?
+  userLocalTime String?
+  createdAt     DateTime @default(now())
+
+  @@unique([date, time])
+  @@index([date])
+}
+
+model ContactMessage {
+  id            Int      @id @default(autoincrement())
+  name          String
+  email         String
+  message       String
+  number        String?
+  whatsapp      Boolean  @default(false)
+  filesAttached String?  @db.NVarChar(Max)
+  createdAt     DateTime @default(now())
+}
+
+model SocialClick {
+  id              Int      @id @default(autoincrement())
+  platform        String
+  clickedAt       DateTime @default(now())
+  durationSeconds Float?
 }

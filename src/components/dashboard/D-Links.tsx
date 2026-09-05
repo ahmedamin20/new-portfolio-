@@ -4,8 +4,8 @@ import { RefreshCcw, Copy, Check, MoreVertical, Edit2, Trash2, Activity, Users, 
 import anime from 'animejs';
 import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, TooltipProps } from 'recharts';
-import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { apiFetch } from '../../lib/apiFetch';
+import { usePolling } from '../../hooks/usePolling';
 import Loader from '../reactbits/Loader';
 import Alert from '../Alert';
 import useSafeAlert from '../../hooks/useSafeAlert';
@@ -18,6 +18,18 @@ interface AnalyticsData {
     [key: string]: string | number | undefined;
 }
 
+interface LinkProjectStatRow {
+    projectId: number;
+    seconds: number;
+    views: number;
+}
+
+interface LinkSocialStatRow {
+    platform: string;
+    seconds: number;
+    views: number;
+}
+
 interface GeneratedLink {
     id: string;
     name: string;
@@ -27,9 +39,19 @@ interface GeneratedLink {
     viewed: boolean;
     counts: number;
     createdAt: Date;
-    recCLI: string;
     interviewer: boolean;
+    totalSessionSeconds: number;
+    stackSeconds: number;
+    contactOpens: number;
+    projects: LinkProjectStatRow[];
+    socials: LinkSocialStatRow[];
 }
+
+const formatTime = (s: number) => {
+    const mins = Math.floor(s / 60);
+    const secs = Math.floor(s % 60);
+    return `${mins}m ${secs}s`;
+};
 
 interface ChartDataPoint {
     label: string;
@@ -44,58 +66,24 @@ interface ChartDataPoint {
 
 
 
-const ActivityModal = ({ isOpen, onClose, onReset, data, linkName }: { isOpen: boolean; onClose: () => void; onReset: () => void; data: string; linkName: string }) => {
+const ActivityModal = ({ isOpen, onClose, onReset, data, linkName }: {
+    isOpen: boolean;
+    onClose: () => void;
+    onReset: () => void;
+    data: { totalSessionSeconds: number; stackSeconds: number; contactOpens: number; projects: LinkProjectStatRow[]; socials: LinkSocialStatRow[] } | null;
+    linkName: string;
+}) => {
     if (!isOpen) return null;
 
-    const parseData = (raw: string) => {
-        if (!raw) return null;
-        try {
-            const getVal = (regex: RegExp) => {
-                const match = raw.match(regex);
-                return match ? match[1] : null;
-            };
-
-            const total = getVal(/Session:\s*([^,\]]+)/) || getVal(/T:\s*([^,\]]+)/) || '0m 0s';
-            const stack = getVal(/Stack:\s*([^,\]]+)/) || getVal(/S:\s*([^,\]]+)/) || '0m 0s';
-            const contact = getVal(/Contact:(\d+)/) || getVal(/C:(\d+)/) || '0';
-
-            const projectsPart = raw.match(/Projects:\[(.*?)\]/)?.[1] || raw.match(/P:\[(.*?)\]/)?.[1] || '';
-            const projects = projectsPart ? projectsPart.split('|').map(p => {
-                const parts = p.match(/^(.*?):([^()x:]+)(?:\((\d+)x\)|:(\d+)v)?$/);
-                if (parts) {
-                    const [, id, time, verboseViews, conciseViews] = parts;
-                    return {
-                        id: id.trim(),
-                        time: time.trim(),
-                        views: (verboseViews || conciseViews || '0')
-                    };
-                }
-                return { id: '?', time: '0m 0s', views: '0' };
-            }).filter(p => p.id !== '?') : [];
-
-            // Socials Parsing
-            const socialsPart = raw.match(/Socials:\[(.*?)\]/)?.[1] || '';
-            const socials = socialsPart ? socialsPart.split('|').map(s => {
-                const parts = s.match(/^(.*?):([^()x:]+)(?:\((\d+)x\)|:(\d+)v)?$/);
-                if (parts) {
-                    const [, id, time, verboseViews, conciseViews] = parts;
-                    return {
-                        id: id.trim(),
-                        time: time.trim(),
-                        views: (verboseViews || conciseViews || '0')
-                    };
-                }
-                return { id: '?', time: '0m 0s', views: '0' };
-            }).filter(s => s.id !== '?') : [];
-
-            return { total, stack, contact, projects, socials };
-        } catch (e) {
-            console.error("Parse error", e);
-            return null;
+    const stats = data && (data.totalSessionSeconds > 0 || data.stackSeconds > 0 || data.contactOpens > 0 || data.projects.length > 0 || data.socials.length > 0)
+        ? {
+            total: formatTime(data.totalSessionSeconds),
+            stack: formatTime(data.stackSeconds),
+            contact: String(data.contactOpens),
+            projects: data.projects.map(p => ({ id: String(p.projectId), time: formatTime(p.seconds), views: String(p.views) })),
+            socials: data.socials.map(s => ({ id: s.platform, time: formatTime(s.seconds), views: String(s.views) })),
         }
-    };
-
-    const stats = parseData(data);
+        : null;
 
     return createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={onClose}>
@@ -899,66 +887,83 @@ const DLinks = () => {
         return () => clearTimeout(tid);
     }, [activeSection]);
 
-    useEffect(() => {
-        // Subscribe to Links sub-collection
-        const linksUnsub = onSnapshot(collection(db, 'Settings', 'Views', 'Links'), (snapshot) => {
-            const linksArray: GeneratedLink[] = [];
-            snapshot.forEach(docSnap => {
-                const item = docSnap.data() as {
-                    Name?: string;
-                    For?: string;
-                    Code?: string;
-                    Rec_CLI?: string;
-                    Views?: number;
-                    Interviewer?: boolean;
-                };
-                linksArray.push({
-                    id: docSnap.id,
-                    name: item.Name || '',
-                    forField: item.For || '',
-                    code: item.Code || item.Rec_CLI || '',
-                    fullLink: `${window.location.origin}/revil/${item.Code || item.Rec_CLI || ''}`,
-                    viewed: (item.Views || 0) > 0,
-                    counts: item.Views || 0,
-                    createdAt: new Date(),
-                    recCLI: item.Rec_CLI || '',
-                    interviewer: !!item.Interviewer
-                });
-            });
-            linksArray.sort((a, b) => parseInt(b.id) - parseInt(a.id));
-            setGeneratedLinks(linksArray);
-        });
+    interface LinkApiRow {
+        id: number;
+        code: string;
+        name: string;
+        forField: string;
+        interviewer: boolean;
+        views: number;
+        totalSessionSeconds: number;
+        stackSeconds: number;
+        contactOpens: number;
+        projects: LinkProjectStatRow[];
+        socials: LinkSocialStatRow[];
+        createdAt: string;
+    }
 
-        // Subscribe to Analysis/Main document
-        const analysisUnsub = onSnapshot(doc(db, 'Settings', 'Views', 'Analysis', 'Main'), (docSnap) => {
-            if (docSnap.exists()) {
-                setAnalytics(docSnap.data() as AnalyticsData);
-            } else {
-                setAnalytics(null);
-            }
-        });
-
-        // Subscribe to Analysis/Daily document (map of dates -> {total, unique})
-        const dailyUnsub = onSnapshot(doc(db, 'Settings', 'Views', 'Analysis', 'Daily'), (docSnap) => {
-            if (docSnap.exists()) {
-                setDailyMap(docSnap.data() as Record<string, number | { total: number }>);
-            } else {
-                setDailyMap(null);
-            }
-        });
-
-        return () => {
-            linksUnsub();
-            analysisUnsub();
-            dailyUnsub();
-        };
+    const fetchLinks = useCallback(async () => {
+        const res = await apiFetch('/api/settings/links');
+        if (!res.ok) return;
+        const { data } = await res.json() as { data: LinkApiRow[] };
+        const linksArray: GeneratedLink[] = data.map((item) => ({
+            id: String(item.id),
+            name: item.name,
+            forField: item.forField,
+            code: item.code,
+            fullLink: `${window.location.origin}/revil/${item.code}`,
+            viewed: item.views > 0,
+            counts: item.views,
+            createdAt: new Date(item.createdAt),
+            interviewer: item.interviewer,
+            totalSessionSeconds: item.totalSessionSeconds,
+            stackSeconds: item.stackSeconds,
+            contactOpens: item.contactOpens,
+            projects: item.projects,
+            socials: item.socials,
+        }));
+        setGeneratedLinks(linksArray);
     }, []);
+
+    const fetchAnalytics = useCallback(async () => {
+        const res = await apiFetch('/api/settings/analytics');
+        if (!res.ok) return;
+        const { data } = await res.json() as {
+            data: {
+                summary: { totalReach: number; reachPerDevice: number; totalProjectViews: number; totalSocialClicks: number };
+                daily: { date: string; total: number; unique: number; projectViews: number; socialClicks: number }[];
+            };
+        };
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayEntry = data.daily.find(d => d.date === todayStr);
+
+        setAnalytics({
+            "Total Reach": data.summary.totalReach,
+            "Reach (Per Device)": data.summary.reachPerDevice,
+            "Today's Viewers": todayEntry?.total ?? 0,
+            "Total Project Views": data.summary.totalProjectViews,
+            "Total Social Clicks": data.summary.totalSocialClicks,
+        });
+
+        setDailyMap(Object.fromEntries(data.daily.map(d => [d.date, { total: d.total, projectViews: d.projectViews, socialClicks: d.socialClicks }])));
+    }, []);
+
+    const refetchAll = useCallback(async () => {
+        await Promise.all([fetchLinks(), fetchAnalytics()]);
+    }, [fetchLinks, fetchAnalytics]);
+
+    usePolling(refetchAll, 12000);
 
     const toggleInterviewerMode = async (linkId: string, currentState: boolean) => {
         try {
             const nextState = !currentState;
-            const docRef = doc(db, 'Settings', 'Views', 'Links', linkId);
-            await updateDoc(docRef, { Interviewer: nextState });
+            await apiFetch(`/api/settings/links/${linkId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interviewer: nextState }),
+            });
+            await fetchLinks();
             showAlert({ type: 'success', message: `Interviewer Mode ${nextState ? 'Activated' : 'Deactivated'} for link.` });
         } catch {
             showAlert({ type: 'error', message: 'Failed to toggle Interviewer Mode' });
@@ -991,20 +996,15 @@ const DLinks = () => {
     const generateCode = async () => {
         if (!name.trim() || !forField.trim()) return;
         setIsLoading(true);
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        let code = '';
-        for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
 
         try {
-            // Get all link IDs to find next ID
-            const linksSnap = await getDocs(collection(db, 'Settings', 'Views', 'Links'));
-            let nextId = "1";
-            if (linksSnap.size > 0) {
-                const ids = linksSnap.docs.map(d => parseInt(d.id)).filter(id => !isNaN(id));
-                if (ids.length > 0) nextId = (Math.max(...ids) + 1).toString();
-            }
-            const payload = { Code: code, For: forField.trim(), Name: name.trim(), "Rec_CLI": "", Views: 0 };
-            await setDoc(doc(db, 'Settings', 'Views', 'Links', nextId), payload);
+            const res = await apiFetch('/api/settings/links', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name.trim(), forField: forField.trim() }),
+            });
+            if (!res.ok) throw new Error('Failed to create link');
+            await fetchLinks();
             setName('');
             setForField('');
             showAlert({ type: 'success', message: 'Campaign link generated successfully!' });
@@ -1029,8 +1029,8 @@ const DLinks = () => {
         if (!id) return;
         setActiveMenu(null);
         try {
-            const docRef = doc(db, 'Settings', 'Views', 'Links', id);
-            await deleteDoc(docRef);
+            await apiFetch(`/api/settings/links/${id}`, { method: 'DELETE' });
+            await fetchLinks();
             showAlert({ type: 'success', message: 'Portal link removed successfully.' });
         } catch {
             showAlert({ type: 'error', message: 'Failed to delete link.' });
@@ -1041,8 +1041,12 @@ const DLinks = () => {
         if (!id) return;
         setActiveMenu(null);
         try {
-            const docRef = doc(db, 'Settings', 'Views', 'Links', id);
-            await updateDoc(docRef, { Views: 0, Rec_CLI: '' });
+            await apiFetch(`/api/settings/links/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reset: true }),
+            });
+            await fetchLinks();
             setActivityLink(null);
             showAlert({ type: 'success', message: 'Portal analytics reset successfully.' });
         } catch {
@@ -1060,11 +1064,12 @@ const DLinks = () => {
     const handleSaveEdit = async () => {
         if (!editingLink || !editName.trim() || !editFor.trim()) return;
         try {
-            const docRef = doc(db, 'Settings', 'Views', 'Links', editingLink.id);
-            await updateDoc(docRef, {
-                Name: editName.trim(),
-                For: editFor.trim()
+            await apiFetch(`/api/settings/links/${editingLink.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: editName.trim(), forField: editFor.trim() }),
             });
+            await fetchLinks();
             setEditingLink(null);
             setEditName('');
             setEditFor('');
@@ -1406,7 +1411,13 @@ const DLinks = () => {
                         });
                     }
                 }}
-                data={activityLink?.recCLI || ''}
+                data={activityLink ? {
+                    totalSessionSeconds: activityLink.totalSessionSeconds,
+                    stackSeconds: activityLink.stackSeconds,
+                    contactOpens: activityLink.contactOpens,
+                    projects: activityLink.projects,
+                    socials: activityLink.socials,
+                } : null}
                 linkName={activityLink?.name || 'Analytics'}
             />
 
