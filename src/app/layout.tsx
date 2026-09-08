@@ -50,11 +50,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-96x96.png', sizes: '96x96', type: 'image/png' },
     ],
-    apple: '/icon-192.png',
+    apple: '/apple-touch-icon.png',
   },
+  manifest: '/site.webmanifest',
   openGraph: {
     type: 'profile',
     url: SITE_URL,
@@ -64,7 +65,7 @@ export const metadata: Metadata = {
     locale: 'en_US',
     images: [
       {
-        url: '/icon-512.png',
+        url: '/web-app-manifest-512x512.png',
         width: 512,
         height: 512,
         alt: 'Ahmed Amin',
@@ -75,7 +76,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
-    images: ['/icon-512.png'],
+    images: ['/web-app-manifest-512x512.png'],
   },
 }
 
@@ -106,7 +107,7 @@ export default function RootLayout({
               url: SITE_URL,
               jobTitle: 'Software Engineer',
               description: SITE_DESCRIPTION,
-              image: `${SITE_URL}/icon-512.png`,
+              image: `${SITE_URL}/web-app-manifest-512x512.png`,
               address: {
                 '@type': 'PostalAddress',
                 addressLocality: 'Giza',
