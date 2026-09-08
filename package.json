@@ -16,6 +16,7 @@
     "cloudinary": "^2.11.0",
     "firebase": "^12.6.0",
     "firebase-admin": "^14.3.0",
+    "googleapis": "^178.0.0",
     "lucide-react": "^0.555.0",
     "motion": "^12.24.7",
     "next": "^16.2.4",

@@ -3,8 +3,6 @@ import { createPortal } from 'react-dom';
 import anime from 'animejs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Edit2, X, Check, Plus, Trash2, Mail, FileText, ExternalLink, Video, ImageIcon, Paperclip, MoreVertical, Reply } from 'lucide-react';
-import { httpsCallable } from 'firebase/functions';
-import { functions } from '../../lib/firebase';
 import { apiFetch } from '../../lib/apiFetch';
 import { usePolling } from '../../hooks/usePolling';
 
@@ -63,6 +61,26 @@ interface EmailApiRow {
     whatsapp: boolean;
     timestamp: number;
     filesAttached: Attachment[];
+}
+
+interface CalendarSyncBody {
+    action: 'create' | 'update' | 'cancel';
+    eventId?: string;
+    name?: string;
+    email?: string;
+    reason?: string;
+    startTime?: string;
+    endTime?: string;
+}
+
+async function syncCalendar(body: CalendarSyncBody): Promise<{ status?: string; id?: string; link?: string }> {
+    const res = await fetch('/api/calendar/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const json = await res.json() as { data?: { status?: string; id?: string; link?: string } };
+    return json.data || {};
 }
 
 const TIME_OPTIONS = [
@@ -272,18 +290,14 @@ const DCanary = () => {
                 const start = new Date(Date.UTC(meeting.date.getFullYear(), meeting.date.getMonth(), meeting.date.getDate(), h, parseInt(mStr)) - (tz * 3600000));
 
                 try {
-                    const syncMeeting = httpsCallable(functions, 'syncMeeting');
-
                     // Call backend to cancel event
-                    await syncMeeting({
+                    await syncCalendar({
                         action: 'cancel',
                         eventId: meeting.googleEventId, // Priority 1: Try ID
                         email: meeting.email,           // Priority 2: Search by Email
                         name: meeting.title,            // Priority 3: Search by Client Name (Title)
                         startTime: start.toISOString()  // Used to find the specific Day
                     });
-
-
                 } catch (syncErr) {
                     console.error("Google Sync Delete Error:", syncErr);
                     showAlert({ type: 'warning', message: 'Deleted from app, but calendar sync failed.' });
@@ -345,9 +359,8 @@ const DCanary = () => {
 
             let newGoogleId = editingMeeting.googleEventId; // --- GOOGLE CALENDAR SYNC ---
             if (editingMeeting.email) {
-                const syncMeeting = httpsCallable(functions, 'syncMeeting');
                 if (editingMeeting.googleEventId) {
-                    await syncMeeting({
+                    await syncCalendar({
                         action: 'update',
                         eventId: editingMeeting.googleEventId,
                         name: editingMeeting.title,
@@ -365,13 +378,13 @@ const DCanary = () => {
 
                     const oldStart = new Date(Date.UTC(originalMeeting.date.getFullYear(), originalMeeting.date.getMonth(), originalMeeting.date.getDate(), oldH, parseInt(oldMStr)) - (tz * 3600000));
 
-                    await syncMeeting({
+                    await syncCalendar({
                         action: 'cancel',
                         email: originalMeeting.email,
                         startTime: oldStart.toISOString()
                     });
 
-                    const response = await syncMeeting({
+                    const resData = await syncCalendar({
                         action: 'create',
                         name: editingMeeting.title,
                         email: editingMeeting.email,
@@ -380,7 +393,6 @@ const DCanary = () => {
                         endTime: end.toISOString()
                     });
 
-                    const resData = response.data as { status?: string; id?: string };
                     if (resData.status === 'success' && resData.id) {
                         newGoogleId = resData.id;
                     }

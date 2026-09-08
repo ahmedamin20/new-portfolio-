@@ -2,9 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Paperclip, User, Phone, MessageSquare, Check, Mail, Calendar, Clock, ChevronLeft, ChevronRight, AlertCircle, Globe } from 'lucide-react';
-import { httpsCallable } from 'firebase/functions';
 import { uploadToCloudinary } from '../lib/cloudinary';
-import { functions } from '../lib/firebase';
 import Alert from './Alert'; // Import Custom Alert
 import useSafeAlert from '../hooks/useSafeAlert';
 import useTheme from '../hooks/useTheme';
@@ -327,20 +325,25 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
       const startDateUTC = new Date(Date.UTC(y, m, d, hours, minutes) - (userTimezone * 3600000));
       const endDateUTC = new Date(startDateUTC.getTime() + 3600000); // 1 hour later
 
-      // 2. Call Firebase Function
-      const syncMeeting = httpsCallable(functions, 'syncMeeting');
-      const response = await syncMeeting({
-        name: meetingData.name,
-        email: meetingData.email.trim(), // Trim whitespace!
-        reason: meetingData.reason,
-        startTime: startDateUTC.toISOString(),
-        endTime: endDateUTC.toISOString()
+      // 2. Create the Google Calendar event (+ Meet link) via our own API route
+      const syncRes = await fetch('/api/calendar/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          name: meetingData.name,
+          email: meetingData.email.trim(), // Trim whitespace!
+          reason: meetingData.reason,
+          startTime: startDateUTC.toISOString(),
+          endTime: endDateUTC.toISOString()
+        }),
       });
 
-      const result = response.data as MeetingFunctionResponse;
+      const syncBody = await syncRes.json() as { data?: MeetingFunctionResponse; message?: string };
+      const result = syncBody.data;
 
-      if (result.status === 'error') {
-        throw new Error(result.message);
+      if (!syncRes.ok || !result || result.status === 'error') {
+        throw new Error(result?.message || syncBody.message || 'Could not sync calendar event');
       }
 
       // 3. Get the Meet Link and Event ID
