@@ -3,10 +3,80 @@ import './globals.css'
 import '../lib/firebase'
 import ClientProtection from './ClientProtection'
 
+const SITE_URL = 'https://ahmedamin.tech'
+const SITE_TITLE = 'Ahmed Amin | Full-Stack Software Engineer'
+const SITE_DESCRIPTION =
+  'Ahmed Amin is a full-stack software engineer building fast, modern web applications with Next.js, React, TypeScript and AI-driven automation. Explore projects, tech stack and get in touch.'
+
 // eslint-disable-next-line react-refresh/only-export-components
 export const metadata: Metadata = {
-  title: 'Ahmed Amin | Main Profile',
-  description: 'Main Professional Profile and an advanced portfolio ecosystem.',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_TITLE,
+    template: '%s | Ahmed Amin',
+  },
+  description: SITE_DESCRIPTION,
+  keywords: [
+    'Ahmed Amin',
+    'Full-Stack Developer',
+    'Software Engineer',
+    'Next.js Developer',
+    'React Developer',
+    'TypeScript Developer',
+    'Frontend Engineer',
+    'Web Developer Egypt',
+    'Software Engineer Giza',
+    'AI Automation Engineer',
+    'Portfolio',
+  ],
+  authors: [{ name: 'Ahmed Amin', url: SITE_URL }],
+  creator: 'Ahmed Amin',
+  publisher: 'Ahmed Amin',
+  applicationName: 'Ahmed Amin Portfolio',
+  category: 'technology',
+  alternates: {
+    canonical: SITE_URL,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  icons: {
+    icon: [
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: '/icon-192.png',
+  },
+  openGraph: {
+    type: 'profile',
+    url: SITE_URL,
+    siteName: 'Ahmed Amin Portfolio',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    locale: 'en_US',
+    images: [
+      {
+        url: '/icon-512.png',
+        width: 512,
+        height: 512,
+        alt: 'Ahmed Amin',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ['/icon-512.png'],
+  },
 }
 
 export default function RootLayout({
@@ -26,6 +96,26 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700;800&family=Permanent+Marker&family=Caveat:wght@400;500;600;700&family=Kalam:wght@400;700&display=swap" rel="stylesheet" />
         <meta name="mobile-web-app-capable" content="yes" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@type': 'Person',
+              name: 'Ahmed Amin',
+              url: SITE_URL,
+              jobTitle: 'Software Engineer',
+              description: SITE_DESCRIPTION,
+              image: `${SITE_URL}/icon-512.png`,
+              address: {
+                '@type': 'PostalAddress',
+                addressLocality: 'Giza',
+                addressCountry: 'EG',
+              },
+              sameAs: [],
+            }),
+          }}
+        />
       </head>
       <body>
         <ClientProtection />
