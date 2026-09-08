@@ -25,5 +25,7 @@ jobs:
             git reset --hard origin/main
             npm install
             npx prisma generate
+            pkill -f "next build" || true
+            rm -rf .next
             npm run build
             pm2 restart 3007:new-portfolio
