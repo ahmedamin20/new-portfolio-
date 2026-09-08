@@ -63,20 +63,11 @@ export const metadata: Metadata = {
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
     locale: 'en_US',
-    images: [
-      {
-        url: '/web-app-manifest-512x512.png',
-        width: 512,
-        height: 512,
-        alt: 'Ahmed Amin',
-      },
-    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
-    images: ['/web-app-manifest-512x512.png'],
   },
 }
 
