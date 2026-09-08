@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User } from 'lucide-react';
-import { getAuth, GoogleAuthProvider, signInWithPopup as authSignInWithPopup, getAdditionalUserInfo } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup as authSignInWithPopup, signOut } from 'firebase/auth';
+
+const ADMIN_EMAIL = 'tc.supply6@gmail.com';
 
 type SecretNavigate = (section: 'home' | 'stack' | 'projects' | 'secret' | 'dashboard' | 'view_link') => void;
 
@@ -52,15 +54,12 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
 
         try {
             const result = await authSignInWithPopup(auth, provider);
-            const details = getAdditionalUserInfo(result);
 
-            void details;
-            // TEMP: new-user rejection disabled for initial account bootstrap — restore after first sign-in.
-            // if (details?.isNewUser) {
-            //     await deleteUser(result.user);
-            //     setError('Wrong Shot.');
-            //     return;
-            // }
+            if (result.user.email !== ADMIN_EMAIL) {
+                await signOut(auth);
+                setError('Wrong Shot.');
+                return;
+            }
 
             if (onNavigate) {
                 onNavigate('dashboard');
