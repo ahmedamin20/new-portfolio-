@@ -1,0 +1,29 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"
+            cd /var/www/html/frontend/new-portfolio
+            git fetch origin main
+            git reset --hard origin/main
+            npm install
+            npx prisma generate
+            npm run build
+            pm2 restart 3007:new-portfolio
