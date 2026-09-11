@@ -62,6 +62,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
     });
     const [bio, setBio] = useState('');
     const [ownerName, setOwnerName] = useState('');
+    const [ownerTitle, setOwnerTitle] = useState('');
     const [education, setEducation] = useState<{ degree: string; institution: string; period: string | null }[]>([]);
     const [impact, setImpact] = useState<{ text: string }[]>([]);
     const [languages, setLanguages] = useState<{ name: string; level: string }[]>([]);
@@ -81,6 +82,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                     });
                     setBio(data.bio || '');
                     setOwnerName(data.name || '');
+                    setOwnerTitle(data.title || '');
                     setEducation(data.education || []);
                     setImpact(data.impact || []);
                     setLanguages(data.languages || []);
@@ -258,9 +260,11 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                         animate={{ opacity: 1, x: 0 }}
                                         className="text-5xl md:text-7xl font-black tracking-tighter text-primary font-sans uppercase leading-none"
                                     >
-                                        Mohammed <span className="text-blue-500">Ahmed</span>
+                                        {ownerName}
                                     </motion.h1>
-                                    <p className="text-blue-500/80 dark:text-blue-400/80 font-sans font-bold tracking-[0.2em] text-lg md:text-sm uppercase">Frontend Expert & AI Expert</p>
+                                    {ownerTitle && (
+                                        <p className="text-blue-500/80 dark:text-blue-400/80 font-sans font-bold tracking-[0.2em] text-lg md:text-sm uppercase">{ownerTitle}</p>
+                                    )}
                                 </div>
 
                                 <div className="flex flex-wrap gap-x-8 gap-y-3 text-base text-sec font-sans">
@@ -281,9 +285,11 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                     {/* Summary Section */}
                                     <section className="space-y-4">
                                         <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Overview</h2>
-                                        <p className="text-lg leading-relaxed text-sec font-medium block">
-                                            {bio || 'Frontend Developer with 3+ year building React applications. Specialized in modern JavaScript frameworks, Firebase integration, and AI-powered solutions using tools, once published, with exclusive invitations to experience them firsthand. Seeking remote opportunities and contributing my technical skills.'}
-                                        </p>
+                                        {bio && (
+                                            <p className="text-lg leading-relaxed text-sec font-medium block">
+                                                {bio}
+                                            </p>
+                                        )}
                                     </section>
 
                                     {/* Projects Section (Dynamic) */}
@@ -346,7 +352,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                     <section className="space-y-6">
                                         <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Stack</h2>
                                         <div className="flex flex-wrap gap-2 pt-2">
-                                            {availableStack.length > 0 ? availableStack.map((skill) => (
+                                            {availableStack.map((skill) => (
                                                 <motion.div
                                                     key={skill.id}
                                                     whileHover={{ scale: 1.05, y: -2 }}
@@ -354,16 +360,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                                 >
                                                     <span className="text-[12px] font-bold text-sec whitespace-nowrap">{skill.name}</span>
                                                 </motion.div>
-                                            )) : (
-                                                ["React", "Next.js", "TypeScript", "Firebase", "Node.js"].map(skill => (
-                                                    <div
-                                                        key={skill}
-                                                        className="px-3.5 py-1.5 bg-white/20 dark:bg-black/10 backdrop-blur-sm border border-black/[0.03] dark:border-white/[0.05] rounded-2xl opacity-50"
-                                                    >
-                                                        <span className="text-[12px] font-bold text-sec">{skill}</span>
-                                                    </div>
-                                                ))
-                                            )}
+                                            ))}
                                         </div>
                                     </section>
 
@@ -416,8 +413,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                     </div>
                                 )}
                                 <p className="text-[9px] font-bold text-muted uppercase tracking-widest leading-loose text-center">
-                                    Engineered with precision using React & Firebase<br />
-                                    © {new Date().getFullYear()} {ownerName || 'Ahmed Amin'}
+                                    © {new Date().getFullYear()} {ownerName}
                                 </p>
                             </footer>
                         </div>
