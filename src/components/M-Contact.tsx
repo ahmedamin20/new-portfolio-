@@ -128,6 +128,9 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
     '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'
   ], []);
 
+  // Saturday is a day off — no slots are ever available on it
+  const isDayOff = useCallback((date: Date | null) => !!date && date.getDay() === 6, []);
+
   // Fetch host availability (numeric UTC offset) once on mount
   useEffect(() => {
     fetch('/api/settings/availability')
@@ -255,6 +258,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
     if (!selectedDate || activeTab !== 'meeting' || hasAutoMoved.current) return;
 
     const checkAvailable = (date: Date) => {
+      if (isDayOff(date)) return false;
       return timeSlots.some((hostTime) => {
         const isBusy = getBookedTimesForDate(date).includes(hostTime);
         const passed = isTimePassed(date, hostTime);
@@ -718,7 +722,7 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
                               const today = new Date();
                               today.setHours(0, 0, 0, 0);
                               const isPast = date < today;
-                              const hasFreeSlots = timeSlots.some((hostTime) => {
+                              const hasFreeSlots = !isDayOff(date) && timeSlots.some((hostTime) => {
                                 const isBusy = bookedTimesForDay.includes(hostTime);
                                 const passed = isTimePassed(date, hostTime);
                                 return !isBusy && !passed;
@@ -943,12 +947,17 @@ const MContact = ({ onClose, initialTab = 'meeting', hideTabs = false }: Omit<MC
 
                                     <div>
                                       <h3 className="heading-sm mb-3 flex items-center gap-2"><Clock size={16} /> Available Slots</h3>
+                                      {isDayOff(selectedDate) && (
+                                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                                          Closed on Saturdays — pick another day.
+                                        </p>
+                                      )}
                                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '16px' }}>
                                         {convertedSlots.map((time, idx) => {
                                           const hostTime = timeSlots[idx];
                                           const isBusy = selectedDate ? getBookedTimesForDate(selectedDate).includes(hostTime) : false;
                                           const passed = isTimePassed(selectedDate, hostTime);
-                                          const isDisabled = isBusy || passed;
+                                          const isDisabled = isBusy || passed || isDayOff(selectedDate);
                                           return (
                                             <button key={time} onClick={() => setSelectedTime(time)} disabled={isDisabled}
                                               style={{

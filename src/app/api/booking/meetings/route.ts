@@ -21,6 +21,9 @@ export async function POST(request: NextRequest) {
         if (!date || !time || !name || !email) {
             return sendErrorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required booking fields");
         }
+        if (date.getUTCDay() === 6) {
+            return sendErrorResponse(HTTP_STATUS.BAD_REQUEST, "Saturdays are unavailable for booking");
+        }
 
         const existing = await prisma.meeting.findFirst({ where: { date, time } });
         if (existing) return sendErrorResponse(HTTP_STATUS.CONFLICT, "This time slot is already booked");
