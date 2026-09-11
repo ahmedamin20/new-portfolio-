@@ -8,7 +8,7 @@ import Projects from './components/Projects';
 import MContact from './components/M-Contact';
 import SecretPage from './components/SecretPage';
 const Dashboard = lazy(() => import('./components/Dashboard'));
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, ChevronDown } from 'lucide-react';
 import Loader from './components/reactbits/Loader';
 import { Algorithm } from './components/Algorithm';
 import MCV from './components/M-CV';
@@ -427,6 +427,31 @@ function App() {
         >
           <ChevronRight size={20} />
         </button>
+      )}
+      {(currentSection === 'home' || currentSection === 'view_link' || currentSection === 'stack') && !isContactModalOpen && !isCVModalOpen && (
+        <motion.button
+          onClick={() => navigateTo(currentSection === 'stack' ? 'projects' : 'stack')}
+          animate={{ y: [0, 8, 0] }}
+          transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+          style={{
+            position: 'fixed',
+            left: '50%',
+            bottom: '96px',
+            transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '999px',
+            padding: '6px',
+            zIndex: 40,
+            color: 'var(--text-muted)',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+          }}
+          aria-label="Scroll to next section"
+        >
+          <ChevronDown size={18} />
+        </motion.button>
       )}
       <LayoutGroup>
         {(currentSection !== 'dashboard') && (
