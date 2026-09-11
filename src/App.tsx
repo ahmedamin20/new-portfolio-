@@ -436,21 +436,21 @@ function App() {
           style={{
             position: 'fixed',
             left: '50%',
-            bottom: '96px',
+            bottom: '176px',
             transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            backgroundColor: 'rgba(255, 255, 255, 0.18)',
             backdropFilter: 'blur(8px)',
             WebkitBackdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
+            border: '1px solid rgba(255, 255, 255, 0.35)',
             borderRadius: '999px',
-            padding: '6px',
+            padding: '8px',
             zIndex: 40,
-            color: 'var(--text-muted)',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+            color: 'var(--text-primary)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)'
           }}
           aria-label="Scroll to next section"
         >
-          <ChevronDown size={18} />
+          <ChevronDown size={20} />
         </motion.button>
       )}
       <LayoutGroup>
