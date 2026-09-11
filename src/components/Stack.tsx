@@ -96,11 +96,14 @@ const SocialIcon = ({ name, url, delay }: { name: string; url: string; delay: nu
         });
     }, [delay]);
 
-    const iconElement = createElement(getIcon(name), {
-        size: 32,
-        className: `transition-colors duration-300 ${isHovered ? 'text-black' : 'text-gray-500'}`,
-        strokeWidth: 1.5
-    });
+    const isWhatsapp = name.toLowerCase().includes('whatsapp');
+    const iconElement = isWhatsapp
+        ? <img src="https://cdn.simpleicons.org/whatsapp/25D366" alt="" width={32} height={32} />
+        : createElement(getIcon(name), {
+            size: 32,
+            className: `transition-colors duration-300 ${isHovered ? 'text-black' : 'text-gray-500'}`,
+            strokeWidth: 1.5
+        });
 
     return (
         <a
@@ -138,11 +141,7 @@ const Stack = () => {
 
     type StackData = { icon?: string; name?: string };
     const [stackItems, setStackItems] = useState<StackData[]>([]);
-    const [socialLinks, setSocialLinks] = useState<{ name: string, url: string }[]>([
-        { name: 'Github', url: 'https://github.com/ahmedamin20' },
-        { name: 'LinkedIn', url: 'https://linkedin.com/in/ahmed-amin20' },
-        { name: 'Instagram', url: 'https://instagram.com/1ahmed_amin2' }
-    ]);
+    const [socialLinks, setSocialLinks] = useState<{ name: string, url: string }[]>([]);
     const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
     // Track window width for responsive behavior

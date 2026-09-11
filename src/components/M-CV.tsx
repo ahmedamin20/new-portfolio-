@@ -199,6 +199,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
         if (lower.includes('github')) return <Github size={16} />;
         if (lower.includes('linkedin')) return <Linkedin size={16} />;
         if (lower.includes('instagram')) return <Instagram size={16} />;
+        if (lower.includes('whatsapp')) return <img src="https://cdn.simpleicons.org/whatsapp/25D366" alt="" width={16} height={16} />;
         return <Globe size={16} />;
     };
 
