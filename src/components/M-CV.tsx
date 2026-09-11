@@ -357,8 +357,18 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                                 <motion.div
                                                     key={skill.id}
                                                     whileHover={{ scale: 1.05, y: -2 }}
-                                                    className="px-3.5 py-1.5 bg-white/40 dark:bg-black/20 backdrop-blur-md border border-black/[0.03] dark:border-white/[0.05] rounded-2xl shadow-sm cursor-default transition-all hover:bg-white/60 dark:hover:bg-black/40 hover:border-blue-500/20"
+                                                    className="flex items-center gap-2 px-3.5 py-1.5 bg-white/40 dark:bg-black/20 backdrop-blur-md border border-black/[0.03] dark:border-white/[0.05] rounded-2xl shadow-sm cursor-default transition-all hover:bg-white/60 dark:hover:bg-black/40 hover:border-blue-500/20"
                                                 >
+                                                    {skill.icon && (
+                                                        <img
+                                                            src={skill.icon}
+                                                            alt=""
+                                                            width={14}
+                                                            height={14}
+                                                            className="shrink-0 opacity-70"
+                                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                        />
+                                                    )}
                                                     <span className="text-[12px] font-bold text-sec whitespace-nowrap">{skill.name}</span>
                                                 </motion.div>
                                             ))}
