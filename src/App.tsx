@@ -14,6 +14,7 @@ import { Algorithm } from './components/Algorithm';
 import MCV from './components/M-CV';
 import MProjectView from './components/M-ProjectView';
 import MContributorView, { Contributor as ContributorViewData } from './components/M-ContributorView';
+import CustomCursor from './components/CustomCursor';
 import { ProjectData as Project, ContributorData as Contributor } from './types';
 
 type Section = 'home' | 'stack' | 'projects' | 'secret' | 'dashboard' | 'view_link';
@@ -359,6 +360,7 @@ function App() {
       onTouchEnd={handleTouchEnd}
     >
       <Loader isOpen={appLoading} isFullScreen={true} />
+      {currentSection !== 'dashboard' && <CustomCursor />}
       <Algorithm currentSection={currentSection} isContactOpen={isContactModalOpen} onNavigate={navigateTo} />
 
       {(currentSection === 'home' || currentSection === 'view_link' || currentSection === 'dashboard' || currentSection === 'secret') && (

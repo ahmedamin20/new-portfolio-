@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* Custom animated cursor */
+html.custom-cursor-active,
+html.custom-cursor-active * {
+  cursor: none !important;
+}
+
+@keyframes cursor-orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ========================================
    1. CSS VARIABLES (Theme Tokens)
    ======================================== */
