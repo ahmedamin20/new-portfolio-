@@ -1,8 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User } from 'lucide-react';
-import { getAuth, GoogleAuthProvider, signInWithPopup as authSignInWithPopup, signOut } from 'firebase/auth';
-
-const ADMIN_EMAIL = 'tc.supply6@gmail.com';
+import { Lock, User } from 'lucide-react';
 
 type SecretNavigate = (section: 'home' | 'stack' | 'projects' | 'secret' | 'dashboard' | 'view_link') => void;
 
@@ -14,14 +11,13 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
     const [isDark, setIsDark] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [profile, setProfile] = useState<{ imageUrl?: string; name?: string; title?: string }>({
         imageUrl: '',
         name: 'Action Center',
         title: 'Authorized Amin Only'
     });
-    const auth = getAuth();
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
 
     useEffect(() => {
         const checkTheme = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -53,24 +49,23 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
         setLoading(true);
 
         try {
-            const result = await authSignInWithPopup(auth, provider);
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+            });
+            const body = await res.json().catch(() => null);
 
-            if (result.user.email !== ADMIN_EMAIL) {
-                await signOut(auth);
-                setError('Wrong Shot.');
+            if (!res.ok) {
+                setError(body?.message || 'Wrong Shot.');
                 return;
             }
 
             if (onNavigate) {
                 onNavigate('dashboard');
             }
-        } catch (err: unknown) {
-            const e = err as { code?: string; message?: string };
-            if (e.code === 'auth/popup-closed-by-user') {
-                setError('Sign-in was cancelled.');
-            } else {
-                setError(e.message || 'An error occurred');
-            }
+        } catch {
+            setError('An error occurred');
         } finally {
             setLoading(false);
         }
@@ -111,17 +106,38 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
                             {error}
                         </div>
                     )}
+
+                    <input
+                        type="email"
+                        required
+                        autoComplete="username"
+                        placeholder="Email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="input-field w-full"
+                    />
+
+                    <input
+                        type="password"
+                        required
+                        autoComplete="current-password"
+                        placeholder="Password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="input-field w-full"
+                    />
+
                     <button
                         type="submit"
                         disabled={loading}
                         className={`btn btn-primary w-full flex items-center justify-center gap-3 ${loading ? 'opacity-70 cursor-wait' : ''}`}
                     >
-                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5 bg-white rounded-full p-0.5" />
+                        <Lock size={18} />
                         {loading ? 'Authorizing...' : 'Authorize Access'}
                     </button>
 
                     <p className="text-xs text-center text-sec opacity-50 mt-2">
-                        Protected by Firebase Security.
+                        Protected by JWT Session Security.
                     </p>
                 </form>
             </div>

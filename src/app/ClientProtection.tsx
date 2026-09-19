@@ -17,7 +17,7 @@ import { useEffect } from 'react'
  * Exemptions:
  * - Framework styles (data-next, data-styled, data-emotion)
  * - @keyframes definitions (legitimate animations)
- * - Scripts from trusted Google/Firebase domains
+ * - Scripts from trusted Google domains
  */
 
 // Dangerous body style properties that should never be externally set
@@ -44,10 +44,7 @@ const MALICIOUS_BODY_PATTERNS = [
 
 // Trusted script sources that ClientProtection should NOT block
 const TRUSTED_SCRIPT_DOMAINS = [
-  'apis.google.com',
-  'accounts.google.com',
   'www.gstatic.com',
-  'firebaseapp.com',
   'googleapis.com',
 ];
 

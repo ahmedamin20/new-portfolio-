@@ -204,7 +204,11 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
                 {/* Bottom Actions - Locked at the end */}
                 <div className="pt-4 mt-2 border-t border-[var(--navbar-border)]">
                     <button
-                        onClick={() => onNavigate && onNavigate('home')}
+                        onClick={() => {
+                            fetch('/api/auth/logout', { method: 'POST' }).finally(() => {
+                                onNavigate && onNavigate('home');
+                            });
+                        }}
                         className={`
                             sidebar-item w-full flex items-center transition-all duration-200 border-0 cursor-pointer bg-transparent text-sec
                             hover:bg-red-500/5 dark:hover:bg-red-500/10 hover:text-red-500
