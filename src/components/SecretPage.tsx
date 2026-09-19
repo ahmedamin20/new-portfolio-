@@ -135,10 +135,6 @@ const SecretPage = ({ onNavigate }: SecretPageProps) => {
                         <Lock size={18} />
                         {loading ? 'Authorizing...' : 'Authorize Access'}
                     </button>
-
-                    <p className="text-xs text-center text-sec opacity-50 mt-2">
-                        Protected by JWT Session Security.
-                    </p>
                 </form>
             </div>
         </div>
