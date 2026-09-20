@@ -104,6 +104,15 @@ model EducationEntry {
   sortOrder   Int    @default(0)
 }
 
+model ExperienceEntry {
+  id          Int     @id @default(autoincrement())
+  role        String
+  company     String
+  period      String?
+  description String?
+  sortOrder   Int     @default(0)
+}
+
 model ImpactEntry {
   id        Int    @id @default(autoincrement())
   text      String
@@ -115,6 +124,13 @@ model LanguageEntry {
   name      String
   level     String
   sortOrder Int    @default(0)
+}
+
+model AdminCredential {
+  id                  Int       @id @default(1)
+  passwordHash        String    @db.NVarChar(1000)
+  resetTokenHash      String?   @db.NVarChar(1000)
+  resetTokenExpiresAt DateTime?
 }
 
 model SettingsAccount {

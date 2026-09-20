@@ -9,6 +9,7 @@ export async function GET() {
         const account = await prisma.settingsAccount.findUnique({ where: { id: 1 } });
         const socialLinks = await prisma.socialLink.findMany({ orderBy: { id: "asc" } });
         const education = await prisma.educationEntry.findMany({ orderBy: { sortOrder: "asc" } });
+        const experience = await prisma.experienceEntry.findMany({ orderBy: { sortOrder: "asc" } });
         const impact = await prisma.impactEntry.findMany({ orderBy: { sortOrder: "asc" } });
         const languages = await prisma.languageEntry.findMany({ orderBy: { sortOrder: "asc" } });
         return sendApiResponse({
@@ -22,6 +23,7 @@ export async function GET() {
             location: account?.location ?? null,
             socialLinks,
             education,
+            experience,
             impact,
             languages,
         });
@@ -37,7 +39,7 @@ export async function PUT(request: NextRequest) {
 
     try {
         const body = await request.json();
-        const { name, title, heroImageUrl, imageUrl, bio, email, phone, location, socialLinks, education, impact, languages } = body;
+        const { name, title, heroImageUrl, imageUrl, bio, email, phone, location, socialLinks, education, experience, impact, languages } = body;
 
         const data: Record<string, string> = {};
         if (typeof name === "string") data.name = name;
@@ -72,6 +74,17 @@ export async function PUT(request: NextRequest) {
                 ...education.map((e: { degree: string; institution: string; period?: string }, i: number) =>
                     prisma.educationEntry.create({
                         data: { degree: e.degree, institution: e.institution, period: e.period || null, sortOrder: i },
+                    })
+                ),
+            ]);
+        }
+
+        if (Array.isArray(experience)) {
+            await prisma.$transaction([
+                prisma.experienceEntry.deleteMany({}),
+                ...experience.map((e: { role: string; company: string; period?: string; description?: string }, i: number) =>
+                    prisma.experienceEntry.create({
+                        data: { role: e.role, company: e.company, period: e.period || null, description: e.description || null, sortOrder: i },
                     })
                 ),
             ]);

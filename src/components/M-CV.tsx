@@ -63,6 +63,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
     const [bio, setBio] = useState('');
     const [ownerName, setOwnerName] = useState('');
     const [ownerTitle, setOwnerTitle] = useState('');
+    const [experience, setExperience] = useState<{ role: string; company: string; period: string | null; description: string | null }[]>([]);
     const [education, setEducation] = useState<{ degree: string; institution: string; period: string | null }[]>([]);
     const [impact, setImpact] = useState<{ text: string }[]>([]);
     const [languages, setLanguages] = useState<{ name: string; level: string }[]>([]);
@@ -83,6 +84,7 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                     setBio(data.bio || '');
                     setOwnerName(data.name || '');
                     setOwnerTitle(data.title || '');
+                    setExperience(data.experience || []);
                     setEducation(data.education || []);
                     setImpact(data.impact || []);
                     setLanguages(data.languages || []);
@@ -326,6 +328,29 @@ const MCV = ({ onClose, onProjectClick }: Omit<MCVProps, 'isOpen'>) => {
                                             )}
                                         </div>
                                     </section>
+
+                                    {/* Experience Section */}
+                                    {experience.length > 0 && (
+                                        <section className="space-y-8 pt-4">
+                                            <h2 className="text-sm md:text-base lg:text-lg font-black uppercase tracking-[0.3em] text-blue-500">Experience</h2>
+                                            <div className="space-y-8 pt-2">
+                                                {experience.map((entry, i) => (
+                                                    <div key={i} className={`space-y-2 ${i > 0 ? 'opacity-60' : ''}`}>
+                                                        <div className="flex justify-between items-start">
+                                                            <h3 className="text-xl font-bold text-primary">{entry.role}</h3>
+                                                            {entry.period && (
+                                                                <span className={`text-[10px] font-black px-2 py-1 rounded ${i === 0 ? 'text-blue-500 bg-blue-500/10' : 'text-muted border border-black/10 dark:border-white/10'}`}>{entry.period}</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sec text-sm">{entry.company}</p>
+                                                        {entry.description && (
+                                                            <p className="text-muted text-xs leading-relaxed">{entry.description}</p>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    )}
 
                                     {/* Education Section */}
                                     {education.length > 0 && (

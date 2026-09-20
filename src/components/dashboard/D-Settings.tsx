@@ -169,7 +169,13 @@ export default function DSettings() {
     const [newLinkUrl, setNewLinkUrl] = useState('');
     const [isEditingProfile, setIsEditingProfile] = useState(false);
 
-    // Digital CV: Education / Impact / Languages
+    // Digital CV: Experience / Education / Impact / Languages
+    const [experienceList, setExperienceList] = useState<{ role: string; company: string; period: string; description: string }[]>([]);
+    const [newExpRole, setNewExpRole] = useState('');
+    const [newExpCompany, setNewExpCompany] = useState('');
+    const [newExpPeriod, setNewExpPeriod] = useState('');
+    const [newExpDescription, setNewExpDescription] = useState('');
+
     const [educationList, setEducationList] = useState<{ degree: string; institution: string; period: string }[]>([]);
     const [newEduDegree, setNewEduDegree] = useState('');
     const [newEduInstitution, setNewEduInstitution] = useState('');
@@ -442,6 +448,9 @@ export default function DSettings() {
                 if (data.socialLinks && !isEditingProfile && !profileInfoDirty) {
                     setSocialLinks(data.socialLinks.map((l: { platform: string; url: string }) => ({ name: l.platform, url: l.url })));
                 }
+                if (data.experience && !isEditingProfile && !profileInfoDirty) {
+                    setExperienceList(data.experience.map((e: { role: string; company: string; period: string | null; description: string | null }) => ({ role: e.role, company: e.company, period: e.period || '', description: e.description || '' })));
+                }
                 if (data.education && !isEditingProfile && !profileInfoDirty) {
                     setEducationList(data.education.map((e: { degree: string; institution: string; period: string | null }) => ({ degree: e.degree, institution: e.institution, period: e.period || '' })));
                 }
@@ -611,6 +620,7 @@ export default function DSettings() {
                 setProfileEmail(data.email ?? '');
                 setProfilePhone(data.phone ?? '');
                 setProfileLocation(data.location ?? '');
+                setExperienceList((data.experience ?? []).map((e: { role: string; company: string; period: string | null; description: string | null }) => ({ role: e.role, company: e.company, period: e.period || '', description: e.description || '' })));
                 setEducationList((data.education ?? []).map((e: { degree: string; institution: string; period: string | null }) => ({ degree: e.degree, institution: e.institution, period: e.period || '' })));
                 setImpactList((data.impact ?? []).map((e: { text: string }) => ({ text: e.text })));
                 setLanguagesList((data.languages ?? []).map((e: { name: string; level: string }) => ({ name: e.name, level: e.level })));
@@ -942,6 +952,7 @@ export default function DSettings() {
                     phone: profilePhone,
                     location: profileLocation,
                     socialLinks: socialLinks.map(l => ({ platform: l.name, url: l.url })),
+                    experience: experienceList,
                     education: educationList,
                     impact: impactList,
                     languages: languagesList
@@ -1607,6 +1618,85 @@ export default function DSettings() {
                                         </div>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+
+                        {/* Experience Editor */}
+                        <div className="settings-panel md:col-span-12 glass-panel p-6 flex flex-col gap-4" style={{ opacity: revealedTabs.account ? 1 : 0 }}>
+                            <h3 className="heading-md text-base sm:text-lg md:text-xl flex items-center mb-2">
+                                <Briefcase size={22} className="mr-3" />
+                                Work Experience
+                            </h3>
+                            <div className="flex flex-col gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                    <div className="sm:col-span-4">
+                                        <label className="text-xs text-muted mb-1 block">Role / Title</label>
+                                        <input className="input-field w-full" placeholder="e.g. Frontend Developer" value={newExpRole} onChange={(e) => setNewExpRole(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-4">
+                                        <label className="text-xs text-muted mb-1 block">Company</label>
+                                        <input className="input-field w-full" placeholder="e.g. Acme Inc." value={newExpCompany} onChange={(e) => setNewExpCompany(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <label className="text-xs text-muted mb-1 block">Period</label>
+                                        <input className="input-field w-full" placeholder="e.g. 2024 — Present" value={newExpPeriod} onChange={(e) => setNewExpPeriod(e.target.value)} />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <button
+                                            className="btn btn-primary w-full justify-center"
+                                            disabled={!newExpRole || !newExpCompany}
+                                            onClick={() => {
+                                                if (newExpRole && newExpCompany) {
+                                                    setExperienceList([...experienceList, { role: newExpRole, company: newExpCompany, period: newExpPeriod, description: newExpDescription }]);
+                                                    setNewExpRole('');
+                                                    setNewExpCompany('');
+                                                    setNewExpPeriod('');
+                                                    setNewExpDescription('');
+                                                    setHasUnsavedChanges(true);
+                                                }
+                                            }}
+                                        >
+                                            <Plus size={18} /> <span className="hidden sm:inline">Add</span>
+                                        </button>
+                                    </div>
+                                    <div className="sm:col-span-12">
+                                        <label className="text-xs text-muted mb-1 block">Description (optional)</label>
+                                        <input className="input-field w-full" placeholder="e.g. Built and shipped the customer dashboard used by 10k+ users." value={newExpDescription} onChange={(e) => setNewExpDescription(e.target.value)} />
+                                    </div>
+                                </div>
+
+                                {experienceList.length > 0 ? (
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        {experienceList.map((entry, index) => (
+                                            <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
+                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                                                        <Briefcase size={14} className="text-primary" />
+                                                    </div>
+                                                    <div className="flex flex-col overflow-hidden">
+                                                        <span className="font-bold text-sm truncate">{entry.role}</span>
+                                                        <span className="text-xs text-muted truncate">{entry.company}{entry.period ? ` • ${entry.period}` : ''}</span>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                    onClick={() => {
+                                                        const next = [...experienceList];
+                                                        next.splice(index, 1);
+                                                        setExperienceList(next);
+                                                        setHasUnsavedChanges(true);
+                                                    }}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-6 border border-dashed border-white/10 rounded-xl text-muted text-sm">
+                                        No experience entries yet.
+                                    </div>
+                                )}
                             </div>
                         </div>
 
